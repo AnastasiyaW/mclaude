@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Editor state
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.coverage
+htmlcov/
+.tox/
+
+# Claude Code session state (these are for using mclaude in THIS repo;
+# they should not be committed because they represent our own development
+# handoffs, not the library code).
+.claude/locks/active-work/
+.claude/locks/completed/
+.claude/handoffs/
+.claude/memory-graph/
+.claude/registry.json
+.claude/.session-start
+.claude/.handoff-reminded

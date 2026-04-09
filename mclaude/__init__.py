@@ -1,7 +1,7 @@
 """
 mclaude - multi-session collaboration layer for Claude Code and other AI agents.
 
-Three layers, all file-based, no external dependencies:
+Five layers, all file-based, no external dependencies:
 
 1. **locks** - atomic work claims prevent two sessions from accidentally
    working on the same task. Heartbeat-based stale detection. Project-local.
@@ -14,7 +14,16 @@ Three layers, all file-based, no external dependencies:
    Inspired by MemPalace but without the ChromaDB dependency. Searchable via
    grep or optional vector layer.
 
-All three layers are orthogonal - you can use one without the others.
+4. **registry** - human-readable identity for Claude instances. Names, owners,
+   roles, notify metadata for future notification layers.
+
+5. **messages** - live inter-session messaging (question/answer/request/update).
+   The "desktop dead drop" pattern formalized: one Claude writes a question,
+   another reads it and answers, all via append-only markdown files in
+   .claude/messages/. Compatible file format with the network hub layer,
+   so local files and remote messages interoperate without translation.
+
+All five layers are orthogonal - use one without the others, or all together.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

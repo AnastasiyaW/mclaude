@@ -1,0 +1,321 @@
+# mclaude
+
+**Multi-session collaboration for Claude Code and other AI coding agents.**
+
+When you have two Claude chats open on the same project - or two teammates running Claude Code at the same time, or yourself switching between laptops - you eventually hit the same problem: *whose turn is it, what has already been done, and how do I find out without interrupting?*
+
+mclaude is a small, file-based system that answers those questions. It does not replace your agent. It gives your agents a shared notebook, a shared lock box, a shared memory shelf, and a shared address book - all living as plain markdown and JSON inside your project.
+
+Four layers, four problems, zero external dependencies.
+
+---
+
+## The problem in one scene
+
+> **Monday, 10:04 AM.** You ask Claude to fix a bug in `auth/middleware.py`.
+>
+> **Monday, 10:07 AM.** Your teammate, on their own laptop, asks their Claude to do the same thing. Neither Claude knows about the other.
+>
+> **Monday, 10:12 AM.** Both PRs open. Both delete the same function. Your merge conflicts, their test fails, and nobody understands why because the "decisions" live in two separate chat histories nobody has permission to read.
+
+mclaude turns this into:
+
+> **Monday, 10:04 AM.** Your Claude claims work on `fix-auth-middleware-race`. A lock file appears in `.claude/locks/`.
+>
+> **Monday, 10:07 AM.** Your teammate's Claude tries to claim the same slug, sees the lock, reads the `description`, and tells your teammate: *"ani is already working on this since 10:04, description says 'race condition in session write'. Want to wait, help, or pick another task?"*
+>
+> **Monday, 10:12 AM.** Your Claude finishes, releases the lock with a summary, writes a handoff. Teammate's Claude reads the handoff, continues the work on a different file, extends the fix with tests.
+
+No merge conflicts. No lost context. No "wait, why did they do it this way?" - the decisions are in the handoff.
+
+---
+
+## The four layers
+
+Each layer solves one specific problem. They are **orthogonal** - use one without the others, or all four together.
+
+### Layer 1 - Work Locks (`mclaude lock`)
+
+*The problem:* Two sessions can accidentally pick up the same task.
+
+*The solution:* Atomic file creation (`O_CREAT | O_EXCL`). Whoever wins the race creates the lock file; everyone else sees it exists and backs off. The holder refreshes a heartbeat every 30 seconds. If the heartbeat goes silent for more than 3 minutes, the lock is considered stale and can be force-released by another session with an audit trail.
+
+```bash
+# Session A tries to claim work
+$ mclaude lock claim --slug fix-auth-middleware-race \
+    --description "Race condition when two requests write the same session key" \
+    --files src/auth/middleware.py src/auth/session.py
+[lock] claimed fix-auth-middleware-race
+  session:  665a44027f424db7
+  files:    src/auth/middleware.py, src/auth/session.py
+  remember: refresh heartbeat every 30s
+
+# Session B tries the same slug - rejected
+$ mclaude lock claim --slug fix-auth-middleware-race --description "same bug I guess"
+[lock] fix-auth-middleware-race already held
+  by session: 665a44027f424db7
+  since:      2026-04-09T14:04:18
+  doing:      Race condition when two requests write the same session key
+  files:      src/auth/middleware.py, src/auth/session.py
+```
+
+Files live in `.claude/locks/active-work/`. Completed work moves to `.claude/locks/completed/` with a summary and timestamp.
+
+### Layer 2 - Handoffs (`mclaude handoff`)
+
+*The problem:* Sessions close. Context dies. The next session has to rediscover what was decided, what failed, and where you left off.
+
+*The solution:* Each session writes its own handoff file with a unique name:
+
+    YYYY-MM-DD_HH-MM_<session-id-first-8>_<slug>.md
+
+For example `2026-04-09_14-32_373d1618_drift-validator-axios.md`. Because every filename is unique, **no two sessions can ever overwrite each other's handoffs**. An append-only `INDEX.md` keeps a running log of all handoffs in chronological order with their status (`ACTIVE`, `RESUMED`, `CLOSED`, `ABANDONED`).
+
+A handoff is structured, not free-form. It always has these sections:
+
+- **Goal** - one or two sentences about what this session was for
+- **Done** - concrete results with file paths
+- **What did NOT work** - failed approaches with the reason why, so the next session does not rediscover the same dead ends
+- **Current state** - what is working, what is broken, what is blocked
+- **Key decisions** - choices made, and the reason behind each
+- **Next step** - the single most concrete thing to do next
+
+```bash
+# Write a handoff at the end of your session
+$ mclaude handoff write \
+    --session 373d1618 \
+    --goal "Fix drift validator false positives on placeholder paths" \
+    --done "Added SKIP_PATTERNS for template placeholders" \
+           "Tested against real CLAUDE.md - 0 drift" \
+    --not-worked "Initial regex was too broad - matched bare filenames as paths" \
+    --working "validator runs clean on 8 files" \
+    --next-step "Push to public repo with Principle 11 update"
+[handoff] written .claude/handoffs/2026-04-09_14-32_373d1618_fix-drift-validator-false-positives.md
+
+# Next session, different day
+$ mclaude handoff latest
+# Session Handoff - 2026-04-09 14:32
+# ... full content of the latest handoff ...
+```
+
+### Layer 3 - Memory Graph (`mclaude memory`)
+
+*The problem:* Facts, decisions, and gotchas pile up over weeks. You remember you decided something about JWT vs sessions, but you cannot find where. Grepping 50 chat histories is painful.
+
+*The solution:* A hierarchical knowledge graph stored as nested markdown files. Inspired by [MemPalace](https://github.com/milla-jovovich/mempalace), whose research demonstrated that **raw verbatim text beats LLM-extracted summaries** on retrieval benchmarks (96.6% R@5 vs 85% for extract-based systems). We borrow the hierarchy and the "store the full text, do not summarize" rule; we drop the ChromaDB dependency.
+
+The hierarchy:
+
+```
+.claude/memory-graph/
+├── core.md                        <- L0 + L1 - always loaded, ~170 tokens
+└── wings/
+    ├── project-myapp/             <- Wing = a project or major topic
+    │   └── rooms/
+    │       └── auth-system/       <- Room = sub-topic within a wing
+    │           ├── decisions/     <- Hall = type of content
+    │           │   └── 2026-04-09_jwt-over-sessions.md
+    │           ├── gotchas/
+    │           │   └── 2026-04-08_jwt-expiry-race.md
+    │           └── references/
+    └── common/                    <- shared across projects
+```
+
+Each "drawer" file contains the full verbatim text the agent wrote, with frontmatter metadata (`valid_from`, `valid_to`, `superseded_by`). Old decisions are never deleted - when a newer decision replaces them, the old file is marked superseded but kept for history.
+
+```bash
+# Save a decision
+$ mclaude memory save \
+    --wing project-myapp --room auth-system --hall decisions \
+    --title "Use JWT instead of server sessions" \
+    --content "Decision: JWT with 15-min access + 30-day refresh. Reasoning: stateless, works across multiple backends, refresh rotation gives us revocation..."
+
+# Find it later
+$ mclaude memory search "JWT"
+wings/project-myapp/rooms/auth-system/decisions/2026-04-09_use-jwt-instead-of-server-sessions.md: title: Use JWT instead of server sessions
+
+# List everything in a room
+$ mclaude memory list --wing project-myapp --room auth-system
+wings/project-myapp/rooms/auth-system/decisions/2026-04-09_use-jwt-instead-of-server-sessions.md
+wings/project-myapp/rooms/auth-system/gotchas/2026-04-08_jwt-expiry-race.md
+```
+
+Default search is ripgrep over the files. Zero dependencies. If you later want semantic search, wire up a vector layer that reads the same files - nothing in mclaude has to change.
+
+### Layer 4 - Identity Registry (`mclaude identity`)
+
+*The problem:* Every Claude session is a bare UUID. You cannot say "Claude ani is doing infra, Claude vasya is doing frontend" - they have no names. You cannot route notifications to specific people. You cannot tell at a glance who is doing what.
+
+*The solution:* A small registry that maps human-friendly names to Claude instances.
+
+```bash
+# Register your identity (done once per machine / account)
+$ mclaude identity register ani \
+    --owner "Anastasia" \
+    --roles infra ml product \
+    --notify telegram:123456789
+
+# Your teammate does the same on their machine
+$ mclaude identity register vasya \
+    --owner "Vasily" \
+    --roles frontend design \
+    --notify email:vasya@example.com
+
+# Any session can see who is who
+$ mclaude identity list
+ani                  id=c0d3-ani-1ddb15f5    owner=Anastasia           last_seen=2026-04-09T14:32:00
+vasya                id=c0d3-vasya-a7f3e812  owner=Vasily              last_seen=2026-04-09T12:15:00
+
+# A Claude session picks up its own identity from the environment
+$ MCLAUDE_IDENTITY=ani claude
+$ mclaude identity whoami
+ani id=c0d3-ani-1ddb15f5 owner=Anastasia roles=infra,ml,product
+```
+
+The registry is **not for authentication**. It is a naming directory. Trust between instances comes from whatever transport you use to share the project directory (git, ssh, shared drive). mclaude just lets agents refer to each other by name instead of UUID.
+
+Once identities exist, you can build a notification layer on top - for example a small service that watches the `.claude/` directory, detects events like "ani claimed work on auth-rewrite", and sends a Telegram message to Vasily. mclaude does not ship that service; `examples/notifications/` shows how to wire one up.
+
+---
+
+## How you actually use this
+
+### Single-session setup
+
+You do not need mclaude if you only ever run one Claude chat. But you probably already lose context between sessions, so `handoff` alone is worth it:
+
+1. `pip install mclaude` (or clone this repo and run from source)
+2. In your project, add the rule files: `cp -r rules .claude/rules/`
+3. At the end of a long session, tell Claude: *"prepare handoff"*. It writes `.claude/handoffs/...md`.
+4. At the start of the next session, tell Claude: *"check for handoff"* or wire up the SessionStart hook in `hooks/`.
+
+### Two chats on the same machine
+
+You get race protection:
+
+1. Set up as above.
+2. When you open a second chat, tell it: *"use mclaude to claim work on X"*.
+3. If the first chat is still active on the same slug, the second chat sees the lock and asks you what you want to do.
+
+### Multi-person teams
+
+You get full collaboration:
+
+1. Put your project under git.
+2. Add `.claude/` to the repo (it is designed to be committed - all files are plain text and merge cleanly).
+3. Each person registers their identity once with a unique name.
+4. Everyone pulls before claiming work, pushes after releasing.
+5. Handoffs become team memory. The knowledge graph becomes team documentation.
+6. Optional: wire up a notification bot to push events.
+
+### With MemPalace or another vector store
+
+mclaude memory is grep-first on purpose. If you want semantic search, MemPalace, ChromaDB, or a local embedding server can sit **on top of** the memory graph files without any change to mclaude:
+
+1. Point MemPalace (or your tool of choice) at `.claude/memory-graph/`.
+2. Let it index the markdown files.
+3. Claude queries via both - grep for exact matches, vector search for semantic ones.
+
+The files are the source of truth. Vector indexes are derived and can be rebuilt any time.
+
+---
+
+## Design principles
+
+These are non-negotiable. If a contribution breaks one of these, it is rejected.
+
+1. **File-based, zero external dependencies.** Everything is markdown, JSON, or TOML on disk. No databases, no MCP servers required, no network calls. This guarantees mclaude works in any environment that has Python 3.9+ and a filesystem - including CI runners, airgapped machines, and emergency SSH sessions.
+
+2. **Files are the source of truth.** No derived state lives only in memory. You can delete the Python package and still understand everything in `.claude/` by reading the files with a text editor.
+
+3. **Append-only where possible, atomic otherwise.** Handoffs and memory drawers are append-only - no two sessions can overwrite each other's writes. Locks are atomic via `O_CREAT | O_EXCL` - the OS guarantees only one session wins a race.
+
+4. **Graceful degradation.** Each of the four layers works independently. If you only use locks, handoffs are unaffected. If the memory module has a bug, handoffs keep working. If mclaude disappears entirely, the `.claude/` directory is still a readable archive of your project's history.
+
+5. **Human-readable formats.** Markdown for narrative, JSON for structured metadata, TOML for config. No pickle, no binary blobs, no opaque schemas. If you want to read or edit something by hand, you can.
+
+6. **Production-grade from day one.** We do not ship MVPs that require rework. Every file format is versioned. Every write is atomic. Every race is prevented, not worked around. Every failure mode is named, tested, and documented.
+
+---
+
+## Architecture at a glance
+
+```
+your-project/
+└── .claude/
+    ├── locks/
+    │   ├── active-work/
+    │   │   ├── fix-auth-bug.lock
+    │   │   ├── fix-auth-bug.heartbeat
+    │   │   └── fix-auth-bug.metadata.json
+    │   └── completed/
+    │       └── fix-auth-bug_2026-04-09_15-30.md
+    │
+    ├── handoffs/
+    │   ├── 2026-04-09_14-32_373d1618_fix-auth-bug.md
+    │   ├── 2026-04-09_16-47_b858f500_dashboard-refactor.md
+    │   └── INDEX.md                              <- append-only
+    │
+    ├── memory-graph/
+    │   ├── core.md                               <- L0 + L1, always loaded
+    │   └── wings/
+    │       ├── project-myapp/
+    │       │   └── rooms/
+    │       │       └── auth-system/
+    │       │           ├── decisions/
+    │       │           └── gotchas/
+    │       └── common/
+    │
+    └── registry.json                             <- Layer 4: who is who
+```
+
+Everything is text. Everything is atomic. Everything is grep-friendly.
+
+---
+
+## What this is not
+
+- **Not an MCP server.** You can wire mclaude into Claude Code via MCP if you want, but the core is CLI + Python library. No server processes, no background daemons.
+- **Not an authentication system.** The registry names instances; it does not verify them. Trust comes from the transport.
+- **Not a replacement for Claude Code.** It is a thin layer on top that solves coordination problems Claude Code itself does not attempt.
+- **Not a MemPalace fork.** We borrow ideas from their research (hierarchical graph, raw verbatim beats extraction) but implement them as plain files without their dependencies.
+- **Not a silver bullet.** If two humans disagree about the right design, two Claudes reading the same handoffs will still disagree. mclaude makes the disagreement *visible* - it does not decide who is right.
+
+---
+
+## Status
+
+- **Version:** 0.1.0
+- **Stability:** alpha - the file formats are stable (we commit to not breaking them), but CLI flags and Python API may evolve in 0.x
+- **Tested on:** Python 3.9+, Windows 10/11, macOS, Linux
+- **Dependencies:** standard library only (argparse, dataclasses, pathlib, json, re, os, time, uuid)
+
+---
+
+## Installation
+
+```bash
+pip install mclaude           # once published to PyPI
+# or
+git clone https://github.com/AnastasiyaW/mclaude
+cd mclaude
+pip install -e .
+```
+
+After installation, `mclaude` is available as a command in your shell. In your project directory, run `mclaude lock list` to see that it works (it will print "no active work claims").
+
+---
+
+## License
+
+MIT. Use it, fork it, rewrite it, put it in your proprietary stack. If you find a bug or have an idea, open an issue - but do not feel obligated to upstream every change.
+
+---
+
+## Credits and inspiration
+
+- **MemPalace** (Milla Jovovich, Ben Sigman) - hierarchical memory graph and the raw-verbatim-over-extraction principle
+- **Paperclip** - heartbeat pattern and file-based coordination ideas
+- **DeerFlow 2.0** (ByteDance) - thinking about the race condition problem they solve with sandbox isolation and the tradeoffs involved
+- **Claude Code** (Anthropic) - the harness this layer is built to assist
+- **Claw Code** (Sigrid Jin) - reminder that transparency in agent infrastructure is a feature, not a compromise

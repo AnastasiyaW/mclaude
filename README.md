@@ -30,9 +30,9 @@ No merge conflicts. No lost context. No "wait, why did they do it this way?" - t
 
 ---
 
-## The four layers
+## The five layers
 
-Each layer solves one specific problem. They are **orthogonal** - use one without the others, or all four together.
+Each layer solves one specific problem. They are **orthogonal** - use one without the others, or all five together.
 
 ### Layer 1 - Work Locks (`mclaude lock`)
 
@@ -175,6 +175,60 @@ ani id=c0d3-ani-1ddb15f5 owner=Anastasia roles=infra,ml,product
 The registry is **not for authentication**. It is a naming directory. Trust between instances comes from whatever transport you use to share the project directory (git, ssh, shared drive). mclaude just lets agents refer to each other by name instead of UUID.
 
 Once identities exist, you can build a notification layer on top - for example a small service that watches the `.claude/` directory, detects events like "ani claimed work on auth-rewrite", and sends a Telegram message to Vasily. mclaude does not ship that service; `examples/notifications/` shows how to wire one up.
+
+### Layer 5 - Messages (`mclaude message`)
+
+*The problem:* Handoffs are for end-of-session. But sometimes one Claude needs help from another Claude *right now*, while working - ask a question, request a review, report an error, get an answer back. Before mclaude, users did this manually by writing to a shared file on the desktop and asking both Claudes to read it.
+
+*The solution:* Live inter-session messaging, formalized. Each message is a standalone markdown file with structured frontmatter:
+
+    YYYY-MM-DD_HH-MM-SS_<from>_<to>_<type>_<slug>.md
+
+For example `2026-04-09_14-32-17_ani_vasya_question_how-to-mock-datetime.md`. Different from handoffs - messages are short, addressed, often expecting a reply. Seven types cover the usual needs: `question`, `answer`, `request`, `update`, `error`, `broadcast`, `ack`.
+
+```bash
+# Session A asks session B a question
+$ mclaude message send \
+    --from ani --to vasya --type question \
+    --subject "How to mock datetime in pytest" \
+    --body "I want to freeze time for a test. What's the cleanest way?"
+[message] sent .claude/messages/inbox/2026-04-09_14-32-17_ani_vasya_question_how-to-mock-datetime-in-pytest.md
+
+# Session B checks its inbox
+$ mclaude message inbox vasya
+  [question ] from ani          | How to mock datetime in pytest
+
+# Session B answers
+$ mclaude message send \
+    --from vasya --to ani --type answer \
+    --subject "Re: How to mock datetime" \
+    --reply-to 2026-04-09_14-32-17_ani_vasya_question_how-to-mock-datetime-in-pytest.md \
+    --body "Use pytest-freezer. See example below..."
+
+# Anyone can view the full thread
+$ mclaude message thread 2026-04-09_14-32-17_ani_vasya_question_how-to-mock-datetime-in-pytest
+```
+
+**Broadcasts** reach everyone:
+
+```bash
+$ mclaude message send --from system --to "*" --type broadcast \
+    --subject "Rebasing main in 5 min" --urgent
+```
+
+All sessions scanning their inbox (any recipient) will see the message because `*` is treated as broadcast. On the filesystem, `*` is sanitized to `ALL` so Windows does not reject the filename.
+
+**Multiple mailboxes** let you separate traffic:
+
+```bash
+# Route all code review requests to a dedicated mailbox
+$ mclaude message send --mailbox review --from ani --to reviewers \
+    --type request --subject "PR #42" --body "Ready for review"
+```
+
+**Append-only semantics** - you never edit a message after it is sent. Status transitions (read, answered, archived) are new "ack" messages referencing the original. This gives you a complete audit trail: who asked what, when, who answered, when, and nothing can be retroactively rewritten.
+
+The message file format is deliberately simple markdown + YAML frontmatter. This matters because the upcoming `mclaude-hub` network layer uses the **same format** for WebSocket-delivered messages. A local exchange and a network exchange interoperate without translation - you can dump hub messages into local files and they work as local messages, or scan local files and push them to the hub.
 
 ---
 

@@ -35,6 +35,7 @@ import sys
 from . import handoffs as _handoffs
 from . import locks as _locks
 from . import memory as _memory
+from . import messages as _messages
 from . import registry as _registry
 
 
@@ -111,6 +112,40 @@ def _add_memory_parser(sub: argparse._SubParsersAction) -> None:
     m.set_defaults(_dispatch="memory")
 
 
+def _add_message_parser(sub: argparse._SubParsersAction) -> None:
+    m = sub.add_parser("message", help="Live inter-session messaging (question/answer/update)")
+    m_sub = m.add_subparsers(dest="message_cmd", required=True)
+
+    send = m_sub.add_parser("send", help="Send a message to another Claude")
+    send.add_argument("--from", dest="from_", required=True, help="Your identity or session short ID")
+    send.add_argument("--to", required=True, help="Recipient name, mailbox, or '*' for broadcast")
+    send.add_argument("--type", default="update",
+                      choices=["question", "answer", "request", "update", "error", "broadcast", "ack"])
+    send.add_argument("--subject", default="", help="Short subject line")
+    send.add_argument("--body", default="", help="Full message body (markdown)")
+    send.add_argument("--reply-to", help="Filename of the message being replied to")
+    send.add_argument("--thread", help="Thread ID (usually the original message stem)")
+    send.add_argument("--urgent", action="store_true")
+    send.add_argument("--mailbox", default="inbox")
+
+    inbox = m_sub.add_parser("inbox", help="List unread messages addressed to a recipient")
+    inbox.add_argument("recipient", help="Your name or session short ID")
+    inbox.add_argument("--mailbox", default="inbox")
+    inbox.add_argument("--include-read", action="store_true")
+
+    thread = m_sub.add_parser("thread", help="Show all messages in a thread")
+    thread.add_argument("thread_id", help="Original message stem or thread field value")
+    thread.add_argument("--mailbox", default="inbox")
+
+    mailboxes = m_sub.add_parser("mailboxes", help="List all mailboxes")
+
+    read = m_sub.add_parser("read", help="Read a specific message by filename")
+    read.add_argument("filename")
+    read.add_argument("--mailbox", default="inbox")
+
+    m.set_defaults(_dispatch="message")
+
+
 def _add_identity_parser(sub: argparse._SubParsersAction) -> None:
     ident = sub.add_parser("identity", help="Identity registry")
     i_sub = ident.add_subparsers(dest="identity_cmd", required=True)
@@ -142,6 +177,7 @@ def build_cli() -> argparse.ArgumentParser:
     _add_lock_parser(sub)
     _add_handoff_parser(sub)
     _add_memory_parser(sub)
+    _add_message_parser(sub)
     _add_identity_parser(sub)
 
     return p
@@ -269,6 +305,64 @@ def _dispatch_memory(args: argparse.Namespace) -> int:
     return 1
 
 
+def _dispatch_message(args: argparse.Namespace) -> int:
+    store = _messages.MessageStore()
+    cmd = args.message_cmd
+    if cmd == "send":
+        msg = _messages.Message(
+            from_=args.from_,
+            to=args.to,
+            type=args.type,
+            subject=args.subject,
+            body=args.body,
+            reply_to=args.reply_to,
+            thread=args.thread,
+            urgent=args.urgent,
+            mailbox=args.mailbox,
+        )
+        path = store.send(msg)
+        print(f"[message] sent {path}")
+        return 0
+    if cmd == "inbox":
+        msgs = store.inbox(
+            recipient=args.recipient,
+            mailbox=args.mailbox,
+            include_read=args.include_read,
+        )
+        if not msgs:
+            print(f"[message] inbox for {args.recipient} is empty")
+            return 0
+        for m in msgs:
+            marker = "!" if m.urgent else " "
+            print(f"{marker} [{m.type:9}] from {m.from_:12} | {m.subject or '(no subject)'}")
+        return 0
+    if cmd == "thread":
+        msgs = store.thread(args.thread_id, mailbox=args.mailbox)
+        if not msgs:
+            print(f"[message] no messages in thread {args.thread_id}")
+            return 0
+        for m in msgs:
+            print(f"=== {m.from_} -> {m.to} [{m.type}] ===")
+            if m.subject:
+                print(f"Subject: {m.subject}")
+            print(m.body)
+            print()
+        return 0
+    if cmd == "mailboxes":
+        for name in store.list_mailboxes():
+            count = len(store.list_mailbox(name))
+            print(f"{name}: {count} messages")
+        return 0
+    if cmd == "read":
+        path = store.mailbox_path(args.mailbox) / args.filename
+        if not path.exists():
+            print(f"[message] not found: {path}")
+            return 1
+        print(path.read_text(encoding="utf-8"))
+        return 0
+    return 1
+
+
 def _dispatch_identity(args: argparse.Namespace) -> int:
     reg = _registry.Registry()
     cmd = args.identity_cmd
@@ -316,6 +410,8 @@ def main() -> int:
         return _dispatch_handoff(args)
     if dispatch == "memory":
         return _dispatch_memory(args)
+    if dispatch == "message":
+        return _dispatch_message(args)
     if dispatch == "identity":
         return _dispatch_identity(args)
     parser.print_help()

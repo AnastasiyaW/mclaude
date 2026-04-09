@@ -2,6 +2,47 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
+## 0.2.0 - 2026-04-09
+
+### Added: Layer 5 - Messages (`mclaude.messages`)
+
+Live inter-session messaging formalizes the "desktop dead drop" pattern: one Claude writes a question to a file, another reads it and answers, all via append-only markdown files. Different from handoffs - handoffs are end-of-session, messages are real-time Q&A during active work.
+
+- **Message types:** question, answer, request, update, error, broadcast, ack
+- **Filename format:** `YYYY-MM-DD_HH-MM-SS_<from>_<to>_<type>_<slug>.md` (second-granularity because multiple messages can fly within a minute)
+- **Multiple mailboxes** - `inbox` (default), or named like `review`, `infra-requests`
+- **Broadcasts** via `to: "*"` (written to filesystem as `ALL` to survive Windows filename rules)
+- **Threading** via `thread` field referencing the original message stem, `reply_to` for direct replies
+- **Append-only semantics** - status transitions (`read`, `answered`, `archived`) are new ack messages, never edits to the original
+- **Cross-platform safe** - `*` in filenames is sanitized to `ALL` (illegal on Windows)
+
+New CLI commands:
+
+```bash
+mclaude message send --from ani --to vasya --type question \
+    --subject "How to mock datetime" --body "Need to freeze time in tests"
+mclaude message inbox ani
+mclaude message thread <thread-id>
+mclaude message mailboxes
+mclaude message read <filename>
+```
+
+File format is designed to be compatible with the upcoming mclaude-hub network layer - a local file-based exchange and a WebSocket-based hub exchange will interoperate without format translation.
+
+**11 new tests** (42 total, all passing):
+- slug generation from subjects
+- filename format and parse roundtrip
+- validation (missing from_/to, bad type)
+- render/parse roundtrip with full frontmatter
+- inbox filtering by recipient (direct + broadcast)
+- threading across multiple messages
+- broadcast delivery to all recipients
+- multiple mailboxes
+- collision handling (_2, _3 suffixes)
+- `mark_status` creates ack, never edits original
+
+---
+
 ## 0.1.0 - 2026-04-09
 
 Initial alpha release.

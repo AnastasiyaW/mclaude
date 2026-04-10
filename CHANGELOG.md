@@ -2,6 +2,75 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
+## 0.3.0 - 2026-04-10
+
+### Added: Claude Code Hooks Integration
+
+Four hook scripts that integrate mclaude with Claude Code's hook system, turning advisory coordination into automatic behavior.
+
+**SessionStart hook** (`hooks/session_start.py`):
+- Automatically shows latest handoff, unread messages, and active locks when a session starts
+- Output injected into agent context by Claude Code harness
+- Respects `MCLAUDE_IDENTITY` for message filtering
+- Skips handoffs older than 48 hours
+
+**PreToolUse lock check** (`hooks/pre_edit_lock_check.py`):
+- Checks if files being edited are locked by another session
+- Triggered on `Edit(*)` tool calls via Claude Code `if` filter
+- Warns but does not block (advisory) - prints lock holder info
+- Matches files by path normalization (handles relative/absolute paths)
+
+**Stop hook** (`hooks/remind_handoff.py`):
+- Reminds to write handoff at session end for long sessions
+- Warns about unreleased locks that would become orphaned
+- Suppressed if a recent handoff was already written (<30 min)
+- Only triggers for sessions with significant activity (>10 min)
+
+**Pre-commit guard** (`hooks/pre_commit_guard.py`):
+- Git pre-commit hook that BLOCKS commits touching locked files
+- Enforcement point: advisory locks become hard blocks at commit time
+- Own locks (via `MCLAUDE_IDENTITY`) are allowed through
+- Install: `mclaude hooks install-guard`
+
+**Hook installer** (`hooks/install.py`):
+- `mclaude hooks install --apply` - copies scripts + updates settings.json
+- `mclaude hooks show` - prints config for manual setup
+- `mclaude hooks install-guard` - installs git pre-commit hook
+- Merges with existing settings, does not overwrite
+
+**Rules template** (`rules/mclaude-coordination.md`):
+- Ready-to-use `.claude/rules/` file for projects using mclaude
+- Covers session start protocol, work claiming, handoff writing
+
+### Added: Status Command
+
+Single-command overview of all five mclaude layers:
+
+```bash
+$ mclaude status
+[mclaude] status for /path/to/project
+  Identity: ani
+
+  Locks (2 active):
+    [ACTIVE] fix-auth by abcd1234: Fixing auth middleware
+    [STALE]  old-task by 9876fedc: Abandoned task
+  Handoffs: 5 total, latest: 2026-04-10_14-32_abcd_test.md
+  Messages: 3 total in 1 mailbox(es), 1 unread for ani
+  Memory: 2 wing(s), 8 drawer(s)
+  Identities: ani, vasya
+```
+
+### Tests
+
+- **22 new tests** (64 total, all passing):
+  - 5 SessionStart hook tests (empty project, handoffs, locks, messages, identity-gated)
+  - 5 PreToolUse lock check tests (no locks, locked file, own lock, empty stdin, bad json)
+  - 3 Stop hook tests (no activity, active locks warning, recent handoff suppression)
+  - 4 pre-commit guard tests (no locks, locked blocks, own lock allows, unlocked passes)
+  - 5 status command tests (empty, locks, handoffs, identity, registry)
+
+---
+
 ## 0.2.0 - 2026-04-09
 
 ### Added: Layer 5 - Messages (`mclaude.messages`)

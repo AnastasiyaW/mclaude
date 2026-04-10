@@ -6,7 +6,7 @@ When you have two Claude chats open on the same project - or two teammates runni
 
 mclaude is a small, file-based system that answers those questions. It does not replace your agent. It gives your agents a shared notebook, a shared lock box, a shared memory shelf, and a shared address book - all living as plain markdown and JSON inside your project.
 
-Four layers, four problems, zero external dependencies.
+Five layers, five problems, zero external dependencies.
 
 ---
 
@@ -232,6 +232,59 @@ The message file format is deliberately simple markdown + YAML frontmatter. This
 
 ---
 
+## Quick status
+
+One command to see everything:
+
+```bash
+$ mclaude status
+[mclaude] status for /home/user/project
+  Identity: ani
+
+  Locks (1 active):
+    [ACTIVE] fix-auth by 665a4402: Race condition in session write
+  Handoffs: 3 total, latest: 2026-04-10_14-32_373d1618_fix-auth-bug.md
+  Messages: 2 total in 1 mailbox(es), 1 unread for ani
+  Memory: 1 wing(s), 4 drawer(s)
+  Identities: ani, vasya
+```
+
+---
+
+## Claude Code hooks
+
+mclaude ships four hook scripts that turn advisory coordination into automatic behavior:
+
+| Hook | Event | What it does |
+|------|-------|-------------|
+| `session_start.py` | SessionStart | Shows latest handoff, unread messages, active locks |
+| `pre_edit_lock_check.py` | PreToolUse (Edit) | Warns if the file is locked by another session |
+| `remind_handoff.py` | Stop | Reminds to write handoff and release locks |
+| `pre_commit_guard.py` | git pre-commit | **Blocks** commits that touch locked files |
+
+Install all Claude Code hooks:
+
+```bash
+$ mclaude hooks install --apply
+[mclaude] Installing hooks...
+  Copied: .claude/hooks/session_start.py
+  Copied: .claude/hooks/pre_edit_lock_check.py
+  Copied: .claude/hooks/remind_handoff.py
+  Settings written to .claude/settings.json
+[mclaude] Hooks installed. Restart Claude Code to activate.
+```
+
+Install the git pre-commit guard separately:
+
+```bash
+$ mclaude hooks install-guard
+[hooks] pre-commit guard installed at .git/hooks/pre-commit
+```
+
+The pre-commit guard is the enforcement layer. Locks are advisory by default - any session *can* edit a locked file. But with the guard, `git commit` refuses to accept changes to files claimed by another session. This is the same pattern used by MCP Agent Mail: runtime warnings + commit-time enforcement.
+
+---
+
 ## How you actually use this
 
 ### Single-session setup
@@ -339,10 +392,11 @@ Everything is text. Everything is atomic. Everything is grep-friendly.
 
 ## Status
 
-- **Version:** 0.1.0
+- **Version:** 0.3.0
 - **Stability:** alpha - the file formats are stable (we commit to not breaking them), but CLI flags and Python API may evolve in 0.x
 - **Tested on:** Python 3.9+, Windows 10/11, macOS, Linux
 - **Dependencies:** standard library only (argparse, dataclasses, pathlib, json, re, os, time, uuid)
+- **Tests:** 64 tests, all passing
 
 ---
 

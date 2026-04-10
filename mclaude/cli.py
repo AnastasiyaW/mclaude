@@ -166,12 +166,34 @@ def _add_identity_parser(sub: argparse._SubParsersAction) -> None:
     ident.set_defaults(_dispatch="identity")
 
 
+def _add_status_parser(sub: argparse._SubParsersAction) -> None:
+    s = sub.add_parser("status", help="One-command overview of all mclaude layers")
+    s.set_defaults(_dispatch="status")
+
+
+def _add_hooks_parser(sub: argparse._SubParsersAction) -> None:
+    h = sub.add_parser("hooks", help="Manage Claude Code hook integration")
+    h_sub = h.add_subparsers(dest="hooks_cmd", required=True)
+
+    install = h_sub.add_parser("install", help="Install mclaude hooks into Claude Code settings")
+    install.add_argument("--apply", action="store_true",
+                         help="Actually install (copy files + update settings.json)")
+    install.add_argument("--project", type=str, default=None,
+                         help="Project root (default: cwd)")
+
+    h_sub.add_parser("show", help="Print hook configuration for manual setup")
+
+    h_sub.add_parser("install-guard", help="Install pre-commit guard into .git/hooks/")
+
+    h.set_defaults(_dispatch="hooks")
+
+
 def build_cli() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="mclaude",
         description="Multi-session collaboration layer for Claude Code agents.",
     )
-    p.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    p.add_argument("--version", action="version", version="%(prog)s 0.3.0")
     sub = p.add_subparsers(dest="command", required=True)
 
     _add_lock_parser(sub)
@@ -179,6 +201,8 @@ def build_cli() -> argparse.ArgumentParser:
     _add_memory_parser(sub)
     _add_message_parser(sub)
     _add_identity_parser(sub)
+    _add_status_parser(sub)
+    _add_hooks_parser(sub)
 
     return p
 
@@ -402,6 +426,207 @@ def _dispatch_identity(args: argparse.Namespace) -> int:
     return 1
 
 
+def _dispatch_status(args: argparse.Namespace) -> int:
+    """Single-command overview of all five mclaude layers."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    root = _Path.cwd()
+    claude_dir = root / ".claude"
+    if not claude_dir.exists():
+        print("[mclaude] no .claude/ directory in current project")
+        return 0
+
+    sections: list[str] = []
+
+    # -- Locks --
+    locks_dir = claude_dir / "locks" / "active-work"
+    if locks_dir.exists():
+        lock_files = sorted(locks_dir.glob("*.lock"))
+        if lock_files:
+            import time as _time
+            lines = [f"Locks ({len(lock_files)} active):"]
+            for lock in lock_files:
+                slug = lock.stem
+                meta_p = locks_dir / f"{slug}.metadata.json"
+                hb_p = locks_dir / f"{slug}.heartbeat"
+                desc = "?"
+                session = "?"
+                stale = False
+                if meta_p.exists():
+                    try:
+                        meta = _json.loads(meta_p.read_text(encoding="utf-8"))
+                        desc = meta.get("description", "?")
+                        session = meta.get("session_id", "?")[:8]
+                    except Exception:
+                        pass
+                if hb_p.exists():
+                    try:
+                        stale = (_time.time() - hb_p.stat().st_mtime) > 180
+                    except OSError:
+                        pass
+                tag = "STALE" if stale else "ACTIVE"
+                lines.append(f"  [{tag}] {slug} by {session}: {desc}")
+            sections.append("\n".join(lines))
+        else:
+            sections.append("Locks: none")
+    else:
+        sections.append("Locks: none")
+
+    # -- Handoffs --
+    handoffs_dir = claude_dir / "handoffs"
+    if handoffs_dir.exists():
+        md_files = sorted(
+            (p for p in handoffs_dir.glob("*.md") if p.name != "INDEX.md"),
+            key=lambda p: p.name,
+            reverse=True,
+        )
+        if md_files:
+            latest = md_files[0]
+            sections.append(f"Handoffs: {len(md_files)} total, latest: {latest.name}")
+        else:
+            sections.append("Handoffs: none")
+    else:
+        sections.append("Handoffs: none")
+
+    # -- Messages --
+    import os as _os
+    identity = _os.environ.get("MCLAUDE_IDENTITY", "")
+    msg_dir = claude_dir / "messages"
+    if msg_dir.exists():
+        mailboxes = [p.name for p in msg_dir.iterdir() if p.is_dir()]
+        total_msgs = sum(len(list((msg_dir / mb).glob("*.md"))) for mb in mailboxes)
+        unread = 0
+        if identity:
+            inbox = msg_dir / "inbox"
+            if inbox.exists():
+                for path in inbox.glob("*.md"):
+                    try:
+                        text = path.read_text(encoding="utf-8")
+                        if "status: unread" in text and (f"to: {identity}" in text or "to: *" in text):
+                            unread += 1
+                    except OSError:
+                        pass
+        unread_str = f", {unread} unread for {identity}" if identity else ""
+        sections.append(f"Messages: {total_msgs} total in {len(mailboxes)} mailbox(es){unread_str}")
+    else:
+        sections.append("Messages: none")
+
+    # -- Memory --
+    mem_dir = claude_dir / "memory-graph"
+    if mem_dir.exists():
+        wings_dir = mem_dir / "wings"
+        wings = []
+        if wings_dir.exists():
+            wings = [p.name for p in wings_dir.iterdir() if p.is_dir()]
+        drawer_count = len(list(mem_dir.rglob("*.md"))) - (1 if (mem_dir / "core.md").exists() else 0)
+        sections.append(f"Memory: {len(wings)} wing(s), {drawer_count} drawer(s)")
+    else:
+        sections.append("Memory: not initialized")
+
+    # -- Registry --
+    reg_path = claude_dir / "registry.json"
+    if reg_path.exists():
+        try:
+            data = _json.loads(reg_path.read_text(encoding="utf-8"))
+            identities = data.get("identities", {})
+            names = ", ".join(sorted(identities.keys())) if identities else "none"
+            sections.append(f"Identities: {names}")
+        except Exception:
+            sections.append("Identities: (error reading registry)")
+    else:
+        sections.append("Identities: none registered")
+
+    # -- Print --
+    current_id = identity or "(not set - export MCLAUDE_IDENTITY=<name>)"
+    print(f"[mclaude] status for {root}")
+    print(f"  Identity: {current_id}")
+    print()
+    for s in sections:
+        for line in s.split("\n"):
+            print(f"  {line}")
+    print()
+    return 0
+
+
+def _dispatch_hooks(args: argparse.Namespace) -> int:
+    cmd = args.hooks_cmd
+    if cmd == "install":
+        # Import the installer
+        import importlib.util
+        from pathlib import Path as _Path
+
+        # Find hooks/install.py relative to this package
+        hooks_install = _Path(__file__).parent.parent / "hooks" / "install.py"
+        if not hooks_install.exists():
+            print(f"[hooks] install script not found at {hooks_install}")
+            return 1
+
+        spec = importlib.util.spec_from_file_location("hooks_install", hooks_install)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            project = _Path(args.project) if args.project else _Path.cwd()
+            if args.apply:
+                mod.apply_config(project)
+            else:
+                mod.print_config()
+            return 0
+        print("[hooks] could not load installer")
+        return 1
+
+    if cmd == "install-guard":
+        import shutil
+        from pathlib import Path as _Path
+        project = _Path(args.project) if hasattr(args, "project") and args.project else _Path.cwd()
+        git_hooks_dir = project / ".git" / "hooks"
+        if not git_hooks_dir.exists():
+            print("[hooks] .git/hooks/ not found - is this a git repository?")
+            return 1
+        source = _Path(__file__).parent.parent / "hooks" / "pre_commit_guard.py"
+        if not source.exists():
+            print(f"[hooks] source script not found: {source}")
+            return 1
+        dest = git_hooks_dir / "pre-commit"
+        if dest.exists():
+            print(f"[hooks] {dest} already exists - back it up manually if needed")
+            return 1
+        # Write a shim that calls python with the script
+        shim_content = f'#!/bin/sh\npython "{source.resolve()}" "$@"\n'
+        dest.write_text(shim_content, encoding="utf-8")
+        try:
+            dest.chmod(0o755)
+        except OSError:
+            pass  # Windows doesn't need chmod
+        print(f"[hooks] pre-commit guard installed at {dest}")
+        print("[hooks] Staged files locked by another session will block commits.")
+        return 0
+
+    if cmd == "show":
+        import importlib.util
+        from pathlib import Path as _Path
+        hooks_install = _Path(__file__).parent.parent / "hooks" / "install.py"
+        if hooks_install.exists():
+            spec = importlib.util.spec_from_file_location("hooks_install", hooks_install)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                mod.print_config()
+                return 0
+        # Fallback: print inline
+        import json as _json
+        print(_json.dumps({
+            "hooks": {
+                "SessionStart": [{"hook_command": "python .claude/hooks/session_start.py", "timeout": 5000}],
+                "PreToolUse": [{"hook_command": "python .claude/hooks/pre_edit_lock_check.py", "if": "Edit(*)", "timeout": 3000}],
+                "Stop": [{"hook_command": "python .claude/hooks/remind_handoff.py", "timeout": 3000}],
+            }
+        }, indent=2))
+        return 0
+
+    return 1
+
+
 def main() -> int:
     parser = build_cli()
     args = parser.parse_args()
@@ -416,6 +641,10 @@ def main() -> int:
         return _dispatch_message(args)
     if dispatch == "identity":
         return _dispatch_identity(args)
+    if dispatch == "status":
+        return _dispatch_status(args)
+    if dispatch == "hooks":
+        return _dispatch_hooks(args)
     parser.print_help()
     return 1
 

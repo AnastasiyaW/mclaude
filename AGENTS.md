@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is mclaude - a multi-session collaboration layer for AI coding agents. It provides four file-based primitives (locks, handoffs, memory graph, identity registry) that let parallel Claude Code sessions coordinate without losing data.
+This is mclaude - a multi-session collaboration layer for AI coding agents. It provides five file-based primitives (locks, handoffs, memory graph, identity registry, messages) plus Claude Code hooks integration that let parallel sessions coordinate without losing data.
 
 ## Purpose for you, the agent
 
@@ -48,6 +48,8 @@ When the user sends any of these, act immediately without asking for clarificati
 ## Commands
 
 ```
+mclaude status                        # one-command overview of all layers
+
 mclaude lock claim --slug <slug> --description "..." [--files a.py b.py]
 mclaude lock release <slug> [--summary "..."]
 mclaude lock status <slug>
@@ -67,6 +69,14 @@ mclaude memory core
 mclaude identity register <name> --owner "..."
 mclaude identity list
 mclaude identity whoami
+
+mclaude message send --from <name> --to <name> --type question --subject "..."
+mclaude message inbox <name>
+mclaude message thread <thread-id>
+
+mclaude hooks install --apply          # install Claude Code hooks
+mclaude hooks install-guard            # install git pre-commit guard
+mclaude hooks show                     # print hook config for manual setup
 ```
 
 ## Rules

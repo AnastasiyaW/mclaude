@@ -197,7 +197,9 @@ def _dispatch_lock(args: argparse.Namespace) -> int:
 def _flatten_known_lock_args(args: argparse.Namespace, lock_cmd: str) -> list[str]:
     out: list[str] = []
     for k, v in vars(args).items():
-        if k.startswith("_") or k in ("command", "lock_cmd"):
+        if k.startswith("_") or k in ("command", "lock_cmd", "func"):
+            continue
+        if callable(v):
             continue
         if v is None or v is False:
             continue

@@ -2,6 +2,70 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
+## 0.4.0 - 2026-04-11
+
+### Added: Active Mail System
+
+High-level mail API that turns passive "check inbox at session start" into active, automatic message delivery during work.
+
+**Mail API** (`mclaude/mail.py`):
+- `mail.check()` - new messages with dedup (won't show same message twice)
+- `mail.reply(msg, body)` - reply with auto-threading (thread + reply_to set automatically)
+- `mail.ask(to, question)` - send question, get thread_id for tracking
+- `mail.wait_for_reply(thread_id, timeout)` - blocking poll for answer
+- `mail.send(to, body)` - generic message send
+- `mail.digest()` - summary: count by sender and type, urgent count
+- `mail.reset_state()` - clear seen-state, re-show everything
+- State tracked in `.claude/messages/.watcher_state.json`
+
+**UserPromptSubmit hook** (`hooks/mail_check.py`):
+- Runs on every user prompt, checks for new messages
+- Only prints when there are new messages (silent otherwise)
+- Body preview (first line, max 100 chars)
+- If `MCLAUDE_HUB_URL` set, syncs with hub before checking
+- Dedup via watcher state file
+
+**Hub sync** (`mclaude/mail_sync.py`):
+- `sync.push_to_hub()` - push local messages to hub
+- `sync.pull_from_hub()` - pull hub messages to local files
+- `sync.auto_sync()` - bidirectional sync
+- Config via `MCLAUDE_HUB_URL` + `MCLAUDE_HUB_TOKEN` env vars
+- State tracked in `.sync_state.json`
+- Falls back to local-only when hub is unconfigured or unreachable
+
+**New CLI commands:**
+
+```bash
+mclaude mail check                    # new messages (with dedup)
+mclaude mail ask vasya "API schema?"  # send question
+mclaude mail reply <msg> --body "..."  # reply with auto-threading
+mclaude mail digest                   # summary counts
+mclaude mail sync                     # sync with hub
+```
+
+**New MCP tools:**
+- `mclaude_mail_check` - structured new-message check
+- `mclaude_mail_reply` - reply by filename fragment
+- `mclaude_mail_ask` - send question, get thread_id
+- `mclaude_mail_digest` - summary counts
+
+**Hook installer updated** to include `UserPromptSubmit` → `mail_check.py`.
+
+### Tests
+
+- **23 new tests** (103 total, all passing):
+  - 6 mail check tests (empty, new message, dedup, broadcast, check_all, new after check)
+  - 2 mail reply tests (auto-threading, thread preservation)
+  - 2 mail ask tests (thread_id return, question creation)
+  - 2 mail digest tests (empty, counts)
+  - 1 mail send test
+  - 1 mail reset_state test
+  - 3 sync configuration tests
+  - 3 sync not-configured tests
+  - 3 sync state tests
+
+---
+
 ## 0.3.0 - 2026-04-11
 
 ### Added: Claude Code Hooks Integration

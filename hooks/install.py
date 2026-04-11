@@ -33,6 +33,12 @@ HOOKS_CONFIG = {
                 "timeout": 3000,
             }
         ],
+        "UserPromptSubmit": [
+            {
+                "hook_command": "python .claude/hooks/mail_check.py",
+                "timeout": 3000,
+            }
+        ],
         "Stop": [
             {
                 "hook_command": "python .claude/hooks/remind_handoff.py",
@@ -45,6 +51,7 @@ HOOKS_CONFIG = {
 HOOK_FILES = [
     "session_start.py",
     "pre_edit_lock_check.py",
+    "mail_check.py",
     "remind_handoff.py",
 ]
 

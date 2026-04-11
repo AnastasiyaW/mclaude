@@ -40,6 +40,13 @@ When the user sends any of these, act immediately without asking for clarificati
 - "remember that..."
 - "what did we decide about X?"
 
+**Mail (active messaging):**
+- "check mail" or "any new messages?"
+- "ask <name> about <topic>"
+- "reply to <name>'s message"
+- "mail digest" or "message summary"
+- "sync mail" (hub sync)
+
 **Identity:**
 - "whoami"
 - "register me as <name>"
@@ -73,6 +80,12 @@ mclaude identity whoami
 mclaude message send --from <name> --to <name> --type question --subject "..."
 mclaude message inbox <name>
 mclaude message thread <thread-id>
+
+mclaude mail check                     # new messages with dedup
+mclaude mail ask <to> "question"       # send question, get thread_id
+mclaude mail reply <msg> --body "..."  # reply with auto-threading
+mclaude mail digest                    # summary counts
+mclaude mail sync                      # sync with hub
 
 mclaude hooks install --apply          # install Claude Code hooks
 mclaude hooks install-guard            # install git pre-commit guard

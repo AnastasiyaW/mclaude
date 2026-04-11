@@ -285,6 +285,40 @@ The pre-commit guard is the enforcement layer. Locks are advisory by default - a
 
 ---
 
+## Active mail
+
+mclaude mail turns passive message checking into automatic delivery. Instead of manually running `mclaude message inbox`, Claude sees new messages **on every user prompt** via the `UserPromptSubmit` hook.
+
+```bash
+# Session A asks session B a question
+$ mclaude mail ask vasya "What's the API schema for auth?"
+[mail] question sent to vasya
+  thread: 2026-04-11_14-32-17_ani_vasya_question_api-schema-auth
+
+# Session B - on the NEXT user prompt, the hook auto-shows:
+# [mclaude mail] 1 new message(s) for vasya:
+#   [question] from ani: What's the API schema for auth?
+#     > What's the API schema for auth?
+
+# Session B replies
+$ mclaude mail reply 2026-04-11_14-32-17_ani --body "JWT with 15-min expiry, refresh token 30d"
+
+# Session A - on the next prompt, sees the answer automatically
+```
+
+The `mail.wait_for_reply()` API also supports blocking wait:
+
+```python
+from mclaude.mail import Mail
+mail = Mail(identity="ani")
+thread = mail.ask("vasya", "How to deploy?")
+answer = mail.wait_for_reply(thread, timeout=120)  # blocks up to 2 min
+```
+
+**Hub sync**: if `MCLAUDE_HUB_URL` and `MCLAUDE_HUB_TOKEN` are set, `mclaude mail sync` pushes local messages to hub and pulls hub messages locally. The hook does this automatically before each check.
+
+---
+
 ## MCP server (native Claude Code integration)
 
 mclaude ships an MCP server that lets Claude Code call tools directly - no `Bash("mclaude lock list")` parsing needed:
@@ -416,7 +450,7 @@ Everything is text. Everything is atomic. Everything is grep-friendly.
 - **Stability:** alpha - the file formats are stable (we commit to not breaking them), but CLI flags and Python API may evolve in 0.x
 - **Tested on:** Python 3.9+, Windows 10/11, macOS, Linux
 - **Dependencies:** standard library only (argparse, dataclasses, pathlib, json, re, os, time, uuid)
-- **Tests:** 80 tests, all passing
+- **Tests:** 103 tests, all passing
 
 ---
 

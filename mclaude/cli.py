@@ -166,6 +166,30 @@ def _add_identity_parser(sub: argparse._SubParsersAction) -> None:
     ident.set_defaults(_dispatch="identity")
 
 
+def _add_mail_parser(sub: argparse._SubParsersAction) -> None:
+    m = sub.add_parser("mail", help="High-level mail: check, reply, ask, digest")
+    m_sub = m.add_subparsers(dest="mail_cmd", required=True)
+
+    m_sub.add_parser("check", help="Check for new messages (only unseen)")
+
+    reply = m_sub.add_parser("reply", help="Reply to a message with auto-threading")
+    reply.add_argument("message", help="Filename or fragment of the message to reply to")
+    reply.add_argument("--body", required=True, help="Reply body")
+    reply.add_argument("--subject", help="Override subject")
+
+    ask = m_sub.add_parser("ask", help="Send a question and get a thread_id")
+    ask.add_argument("to", help="Recipient identity name")
+    ask.add_argument("question", help="The question text")
+    ask.add_argument("--body", default="", help="Additional context")
+    ask.add_argument("--urgent", action="store_true")
+
+    m_sub.add_parser("digest", help="Summary of unread by sender/type")
+
+    sync_cmd = m_sub.add_parser("sync", help="Sync messages with hub (if configured)")
+
+    m.set_defaults(_dispatch="mail")
+
+
 def _add_status_parser(sub: argparse._SubParsersAction) -> None:
     s = sub.add_parser("status", help="One-command overview of all mclaude layers")
     s.set_defaults(_dispatch="status")
@@ -193,13 +217,14 @@ def build_cli() -> argparse.ArgumentParser:
         prog="mclaude",
         description="Multi-session collaboration layer for Claude Code agents.",
     )
-    p.add_argument("--version", action="version", version="%(prog)s 0.3.0")
+    p.add_argument("--version", action="version", version="%(prog)s 0.4.0")
     sub = p.add_subparsers(dest="command", required=True)
 
     _add_lock_parser(sub)
     _add_handoff_parser(sub)
     _add_memory_parser(sub)
     _add_message_parser(sub)
+    _add_mail_parser(sub)
     _add_identity_parser(sub)
     _add_status_parser(sub)
     _add_hooks_parser(sub)
@@ -426,6 +451,83 @@ def _dispatch_identity(args: argparse.Namespace) -> int:
     return 1
 
 
+def _dispatch_mail(args: argparse.Namespace) -> int:
+    from .mail import Mail as _Mail
+    from .mail_sync import MailSync as _MailSync
+
+    import os as _os
+    identity = _os.environ.get("MCLAUDE_IDENTITY", "")
+    cmd = args.mail_cmd
+
+    if not identity and cmd != "sync":
+        print("[mail] MCLAUDE_IDENTITY not set. Export it first:")
+        print("  export MCLAUDE_IDENTITY=your-name")
+        return 1
+
+    mail = _Mail(identity=identity)
+
+    if cmd == "check":
+        msgs = mail.check()
+        if not msgs:
+            print(f"[mail] no new messages for {identity}")
+            return 0
+        print(f"[mail] {len(msgs)} new message(s):")
+        for m in msgs:
+            marker = "! " if m.urgent else "  "
+            print(f"{marker}[{m.type:9}] from {m.from_:12} | {m.subject or '(no subject)'}")
+            if m.body:
+                preview = m.body.splitlines()[0][:80]
+                print(f"    > {preview}")
+        return 0
+
+    if cmd == "reply":
+        # Find original message
+        fragment = args.message
+        store = mail.store
+        matches = [p for p in store.list_mailbox(mail.mailbox) if fragment in p.name]
+        if not matches:
+            print(f"[mail] no message matching '{fragment}'")
+            return 1
+        from .messages import Message as _Msg
+        original = _Msg.parse(matches[0])
+        path = mail.reply(original, args.body, subject=args.subject)
+        print(f"[mail] replied to {original.from_}: {path.name}")
+        return 0
+
+    if cmd == "ask":
+        thread_id = mail.ask(args.to, args.question, body=args.body, urgent=args.urgent)
+        print(f"[mail] question sent to {args.to}")
+        print(f"  thread: {thread_id}")
+        print(f"  check reply: mclaude mail check")
+        return 0
+
+    if cmd == "digest":
+        d = mail.digest()
+        if d["total"] == 0:
+            print(f"[mail] inbox clear for {identity}")
+            return 0
+        print(f"[mail] {d['total']} unread ({d['urgent']} urgent):")
+        for sender, count in sorted(d["by_sender"].items()):
+            print(f"  from {sender}: {count}")
+        for type_, count in sorted(d["by_type"].items()):
+            print(f"  [{type_}]: {count}")
+        return 0
+
+    if cmd == "sync":
+        sync = _MailSync()
+        if not sync.configured:
+            print("[mail] hub not configured. Set MCLAUDE_HUB_URL and MCLAUDE_HUB_TOKEN")
+            return 1
+        result = sync.auto_sync()
+        print(f"[mail] synced: pushed {result['pushed']}, pulled {result['pulled']}")
+        if result["errors"]:
+            for err in result["errors"]:
+                print(f"  error: {err}")
+        return 0
+
+    return 1
+
+
 def _dispatch_status(args: argparse.Namespace) -> int:
     """Single-command overview of all five mclaude layers."""
     import json as _json
@@ -639,6 +741,8 @@ def main() -> int:
         return _dispatch_memory(args)
     if dispatch == "message":
         return _dispatch_message(args)
+    if dispatch == "mail":
+        return _dispatch_mail(args)
     if dispatch == "identity":
         return _dispatch_identity(args)
     if dispatch == "status":

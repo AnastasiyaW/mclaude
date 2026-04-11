@@ -34,6 +34,10 @@ Tools exposed:
   mclaude_memory_core     - read the always-loaded core memory
   mclaude_message_send    - send a message to another session
   mclaude_message_inbox   - check inbox for a recipient
+  mclaude_mail_check      - check for NEW messages (with dedup state)
+  mclaude_mail_reply      - reply to a message with auto-threading
+  mclaude_mail_ask        - send a question and get thread_id
+  mclaude_mail_digest     - summary of unread by sender/type
   mclaude_identity_whoami - get current identity
   mclaude_status          - one-command overview of all layers
 """
@@ -48,6 +52,7 @@ from pathlib import Path
 
 from . import handoffs as _handoffs
 from . import locks as _locks
+from .mail import Mail as _Mail
 from . import memory as _memory
 from . import messages as _messages
 from . import registry as _registry
@@ -273,6 +278,43 @@ TOOLS = [
     {
         "name": "mclaude_status",
         "description": "One-command overview of all five mclaude layers (locks, handoffs, messages, memory, identities).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "mclaude_mail_check",
+        "description": "Check for NEW messages since last check (with dedup - won't show same message twice).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "mclaude_mail_reply",
+        "description": "Reply to a message with auto-threading. Finds the original message by filename fragment.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "original_filename": {"type": "string", "description": "Filename or fragment of the message to reply to"},
+                "body": {"type": "string", "description": "Reply body"},
+                "subject": {"type": "string", "description": "Override subject (default: Re: original subject)"},
+            },
+            "required": ["original_filename", "body"],
+        },
+    },
+    {
+        "name": "mclaude_mail_ask",
+        "description": "Send a question to another Claude session. Returns thread_id for tracking replies.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient identity name"},
+                "question": {"type": "string", "description": "The question (used as subject)"},
+                "body": {"type": "string", "description": "Additional context"},
+                "urgent": {"type": "boolean"},
+            },
+            "required": ["to", "question"],
+        },
+    },
+    {
+        "name": "mclaude_mail_digest",
+        "description": "Summary of unread messages: count by sender and type.",
         "inputSchema": {"type": "object", "properties": {}},
     },
 ]
@@ -632,6 +674,71 @@ def _handle_status(params: dict) -> dict:
     return result
 
 
+def _handle_mail_check(params: dict) -> dict:
+    identity = os.environ.get("MCLAUDE_IDENTITY", "")
+    if not identity:
+        return {"messages": [], "count": 0, "error": "MCLAUDE_IDENTITY not set"}
+    mail = _Mail(identity=identity)
+    msgs = mail.check()
+    return {
+        "messages": [
+            {
+                "from": m.from_,
+                "to": m.to,
+                "type": m.type,
+                "subject": m.subject,
+                "body": m.body,
+                "urgent": m.urgent,
+            }
+            for m in msgs
+        ],
+        "count": len(msgs),
+    }
+
+
+def _handle_mail_reply(params: dict) -> dict:
+    identity = os.environ.get("MCLAUDE_IDENTITY", "")
+    if not identity:
+        return {"success": False, "error": "MCLAUDE_IDENTITY not set"}
+    mail = _Mail(identity=identity)
+
+    # Find the original message by filename fragment
+    fragment = params["original_filename"]
+    store = mail.store
+    matches = []
+    for path in store.list_mailbox(mail.mailbox):
+        if fragment in path.name:
+            matches.append(path)
+    if not matches:
+        return {"success": False, "error": f"No message matching '{fragment}'"}
+
+    original = _messages.Message.parse(matches[0])
+    path = mail.reply(original, params["body"], subject=params.get("subject"))
+    return {"success": True, "path": str(path), "thread": original.thread or original.filename()}
+
+
+def _handle_mail_ask(params: dict) -> dict:
+    identity = os.environ.get("MCLAUDE_IDENTITY", "")
+    if not identity:
+        return {"success": False, "error": "MCLAUDE_IDENTITY not set"}
+    mail = _Mail(identity=identity)
+    thread_id = mail.ask(
+        to=params["to"],
+        question=params["question"],
+        body=params.get("body", ""),
+        urgent=params.get("urgent", False),
+    )
+    return {"success": True, "thread_id": thread_id}
+
+
+def _handle_mail_digest(params: dict) -> dict:
+    identity = os.environ.get("MCLAUDE_IDENTITY", "")
+    if not identity:
+        return {"total": 0, "error": "MCLAUDE_IDENTITY not set"}
+    mail = _Mail(identity=identity)
+    return mail.digest()
+
+
 HANDLERS = {
     "mclaude_lock_claim": _handle_lock_claim,
     "mclaude_lock_release": _handle_lock_release,
@@ -649,6 +756,10 @@ HANDLERS = {
     "mclaude_message_inbox": _handle_message_inbox,
     "mclaude_identity_whoami": _handle_identity_whoami,
     "mclaude_status": _handle_status,
+    "mclaude_mail_check": _handle_mail_check,
+    "mclaude_mail_reply": _handle_mail_reply,
+    "mclaude_mail_ask": _handle_mail_ask,
+    "mclaude_mail_digest": _handle_mail_digest,
 }
 
 

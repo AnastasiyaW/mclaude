@@ -1,0 +1,19 @@
+# Retouch App Knowledge Base
+
+> Internal knowledge base for the Retouch App project.
+> Modules, decisions, API references, and gotchas.
+
+## Engine
+- [Engine Overview](/engine/): Domain overview
+
+## Converter
+- [Converter Overview](/converter/): Domain overview
+
+## Plugin
+- [Plugin Overview](/plugin/): Domain overview
+
+## Server
+- [Server Overview](/server/): Domain overview
+
+## Tools
+- [Tools Overview](/tools/): Domain overview

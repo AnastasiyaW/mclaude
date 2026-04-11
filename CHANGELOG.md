@@ -2,6 +2,38 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
+## 0.5.0 - 2026-04-11
+
+### Changed: Monorepo merge (mclaude-hub absorbed)
+
+mclaude-hub (network + desktop + audio layer) merged into the main mclaude repo.
+Two repos become one. Core stays zero-dependency; hub/bridge/audio/client are
+optional extras.
+
+**What moved:**
+- `mclaude_hub.common` -> `mclaude.common` (shared Pydantic models)
+- `mclaude_hub.hub` -> `mclaude.hub` (FastAPI server + SQLite store)
+- `mclaude_hub.bridge` -> `mclaude.bridge` (HTTP client + file fallback)
+- `mclaude_hub.audio` -> `mclaude.audio` (STT/TTS backends)
+- `mclaude_hub.client` -> `mclaude.client` (PyQt6 desktop app)
+- `project-kb/` (MkDocs scaffold for per-project knowledge bases)
+- `_inbox/` (findings staging area)
+- `docs/architecture.md` (full system architecture)
+
+**Install:**
+```bash
+pip install mclaude              # core only (zero deps)
+pip install mclaude[hub]         # + FastAPI hub server
+pip install mclaude[client]      # + PyQt6 desktop client
+pip install mclaude[audio-full]  # + STT + TTS
+pip install mclaude[hub,dev]     # hub + test deps
+```
+
+**Breaking:** `from mclaude_hub.xxx` -> `from mclaude.xxx`. The old mclaude-hub
+package is archived.
+
+---
+
 ## 0.4.0 - 2026-04-11
 
 ### Added: Active Mail System

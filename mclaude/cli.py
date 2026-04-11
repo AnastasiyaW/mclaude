@@ -217,7 +217,7 @@ def build_cli() -> argparse.ArgumentParser:
         prog="mclaude",
         description="Multi-session collaboration layer for Claude Code agents.",
     )
-    p.add_argument("--version", action="version", version="%(prog)s 0.4.0")
+    p.add_argument("--version", action="version", version="%(prog)s 0.5.0")
     sub = p.add_subparsers(dest="command", required=True)
 
     _add_lock_parser(sub)

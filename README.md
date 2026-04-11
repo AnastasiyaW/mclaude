@@ -6,7 +6,7 @@ When you have two Claude chats open on the same project - or two teammates runni
 
 mclaude is a small, file-based system that answers those questions. It does not replace your agent. It gives your agents a shared notebook, a shared lock box, a shared memory shelf, and a shared address book - all living as plain markdown and JSON inside your project.
 
-Five layers, five problems, zero external dependencies.
+Five file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
 
 ---
 
@@ -446,25 +446,88 @@ Everything is text. Everything is atomic. Everything is grep-friendly.
 
 ## Status
 
-- **Version:** 0.3.0
+- **Version:** 0.5.0
 - **Stability:** alpha - the file formats are stable (we commit to not breaking them), but CLI flags and Python API may evolve in 0.x
 - **Tested on:** Python 3.9+, Windows 10/11, macOS, Linux
 - **Dependencies:** standard library only (argparse, dataclasses, pathlib, json, re, os, time, uuid)
-- **Tests:** 103 tests, all passing
+- **Tests:** 160+ tests, all passing (core + hub + bridge + audio)
 
 ---
 
 ## Installation
 
 ```bash
-pip install mclaude           # once published to PyPI
-# or
+# Core only (zero dependencies, file-based coordination)
+pip install mclaude
+
+# With hub server (FastAPI + SQLite, for multi-machine teams)
+pip install mclaude[hub]
+
+# With desktop client (PyQt6 tray icon, notifications)
+pip install mclaude[client]
+
+# With voice I/O (STT via faster-whisper, TTS via pyttsx3)
+pip install mclaude[audio-full]
+
+# Everything
+pip install mclaude[hub,client,audio-full]
+
+# Development
 git clone https://github.com/AnastasiyaW/mclaude
 cd mclaude
-pip install -e .
+pip install -e ".[hub,dev]"
 ```
 
-After installation, `mclaude` is available as a command in your shell. In your project directory, run `mclaude lock list` to see that it works (it will print "no active work claims").
+After installation, `mclaude` is available as a command in your shell. Run `mclaude status` to see all layers at a glance.
+
+---
+
+## Optional extensions
+
+The core five layers work with zero dependencies. These extensions add network, desktop, and audio capabilities:
+
+### Hub server (`mclaude.hub`)
+
+A central relay so sessions on different machines can share state. FastAPI + SQLite + WebSocket broadcast.
+
+```bash
+pip install mclaude[hub]
+uvicorn mclaude.hub.server:create_app --factory --host 0.0.0.0 --port 8080
+```
+
+If the hub is offline, everything degrades to local file mode. Nothing hard-fails.
+
+### Claude bridge (`mclaude.bridge`)
+
+Connects a Claude Code session to the hub. Falls back to file-based mclaude when network is down.
+
+```python
+from mclaude.bridge import BridgeClient, BridgeConfig
+bridge = BridgeClient(BridgeConfig(
+    hub_url="https://your-hub.example.com",
+    token="your-bearer-token",
+    identity="ani",
+))
+```
+
+### Desktop client (`mclaude.client`)
+
+System tray icon with native notifications, voice input (STT), and text-to-speech (TTS).
+
+```bash
+pip install "mclaude[client,audio-full]"
+python -m mclaude.client
+```
+
+### Project Knowledge Base (`project-kb/`)
+
+MkDocs scaffold for per-project knowledge bases. Multiple Claude sessions read the KB before implementing anything.
+
+```bash
+python project-kb/scaffold.py --name "my-project" --domains "backend,frontend,api"
+```
+
+See [docs/architecture.md](docs/architecture.md) for the full system architecture.
 
 ---
 

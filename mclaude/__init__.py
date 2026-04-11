@@ -26,4 +26,4 @@ Five layers, all file-based, no external dependencies:
 All five layers are orthogonal - use one without the others, or all together.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

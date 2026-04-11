@@ -135,6 +135,8 @@ class Drawer:
     valid_to: str | None = None  # None means still valid
     superseded_by: str | None = None  # filename of a newer drawer that replaces this one
 
+    links: list[str] = field(default_factory=list)  # wiki-links: ["wing/room/hall/file"]
+
     def filename(self) -> str:
         when = time.strftime("%Y-%m-%d") if not self.created else self.created[:10]
         return f"{when}_{slugify(self.title)}.md"
@@ -151,11 +153,19 @@ class Drawer:
         lines.append(f"valid_from: {self.valid_from or self.created or time.strftime('%Y-%m-%dT%H:%M:%S')}")
         lines.append(f"valid_to: {self.valid_to or 'null'}")
         lines.append(f"superseded_by: {self.superseded_by or 'null'}")
+        if self.links:
+            lines.append(f"links: [{', '.join(self.links)}]")
         lines.append("---")
         lines.append("")
         lines.append(f"# {self.title}")
         lines.append("")
         lines.append(self.content)
+        if self.links:
+            lines.append("")
+            lines.append("## Related")
+            lines.append("")
+            for link in self.links:
+                lines.append(f"- [[{link}]]")
         lines.append("")
         return "\n".join(lines)
 
@@ -313,3 +323,156 @@ class MemoryGraph:
         """Return the L0+L1 always-loaded core memory as a string."""
         self.ensure()
         return self.core_path.read_text(encoding="utf-8")
+
+    # -- Knowledge Index (entity resolution) --------------------------------
+
+    def build_index(self) -> list[dict]:
+        """Scan all drawers and build a knowledge index.
+
+        Returns a list of dicts, one per drawer:
+            {title, wing, room, hall, tags, path, superseded}
+
+        Use this before saving a new drawer to check if a similar entry
+        already exists (entity resolution without vector search).
+        The index is cheap to build - just frontmatter parsing, no LLM.
+        """
+        index: list[dict] = []
+        if not self.wings_dir.exists():
+            return index
+
+        for wing_dir in sorted(self.wings_dir.iterdir()):
+            if not wing_dir.is_dir():
+                continue
+            wing_name = wing_dir.name
+            rooms_dir = wing_dir / "rooms"
+            if not rooms_dir.exists():
+                continue
+            for room_dir in sorted(rooms_dir.iterdir()):
+                if not room_dir.is_dir():
+                    continue
+                room_name = room_dir.name
+                for md_file in room_dir.rglob("*.md"):
+                    if not md_file.is_file():
+                        continue
+                    try:
+                        head = md_file.read_text(encoding="utf-8", errors="ignore")[:800]
+                    except OSError:
+                        continue
+                    # Parse frontmatter
+                    meta = self._parse_frontmatter(head)
+                    # Determine hall from path
+                    hall = md_file.parent.name if md_file.parent.name in STANDARD_HALLS else ""
+
+                    entry = {
+                        "title": meta.get("title", md_file.stem),
+                        "wing": wing_name,
+                        "room": room_name,
+                        "hall": hall,
+                        "tags": [t.strip() for t in meta.get("tags", "").strip("[]").split(",") if t.strip()],
+                        "path": str(md_file.relative_to(self.root)),
+                        "superseded": meta.get("superseded_by", "null") != "null",
+                        "created": meta.get("created", ""),
+                    }
+                    index.append(entry)
+
+        return index
+
+    def find_similar(self, title: str, threshold: float = 0.5) -> list[dict]:
+        """Find drawers with titles similar to the given one.
+
+        Uses word overlap ratio (Jaccard-like) - no external deps.
+        Returns matching index entries sorted by similarity (highest first).
+
+        Args:
+            title: the title to match against
+            threshold: minimum word overlap ratio (0.0-1.0)
+        """
+        title_words = set(slugify(title).split("-"))
+        if not title_words:
+            return []
+
+        index = self.build_index()
+        scored: list[tuple[float, dict]] = []
+
+        for entry in index:
+            if entry["superseded"]:
+                continue
+            entry_words = set(slugify(entry["title"]).split("-"))
+            if not entry_words:
+                continue
+            # Jaccard similarity
+            intersection = title_words & entry_words
+            union = title_words | entry_words
+            score = len(intersection) / len(union) if union else 0
+            if score >= threshold:
+                scored.append((score, entry))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [entry for _, entry in scored]
+
+    def render_index(self) -> str:
+        """Render the knowledge index as a markdown table.
+
+        Designed to be injected into an agent's context so it knows what
+        knowledge already exists before creating new entries.
+        """
+        index = self.build_index()
+        if not index:
+            return "(empty memory graph)"
+
+        lines = [
+            "| Title | Wing | Room | Hall | Tags |",
+            "|---|---|---|---|---|",
+        ]
+        for entry in index:
+            if entry["superseded"]:
+                continue
+            tags = ", ".join(entry["tags"][:3])
+            lines.append(
+                f"| {entry['title'][:50]} | {entry['wing']} | {entry['room']} "
+                f"| {entry['hall']} | {tags} |"
+            )
+        return "\n".join(lines)
+
+    def find_backlinks(self, drawer_path: str) -> list[dict]:
+        """Find all drawers that link to the given path via [[wiki-links]].
+
+        Args:
+            drawer_path: relative path within memory-graph/ (e.g. "wings/myapp/rooms/auth/decisions/jwt.md")
+
+        Returns list of {title, path, link_text} for each drawer that references this one.
+        """
+        # Normalize: accept full path or just filename
+        target_name = Path(drawer_path).stem
+        pattern = re.compile(r"\[\[([^\]]*" + re.escape(target_name) + r"[^\]]*)\]\]")
+
+        results: list[dict] = []
+        for drawer in self.list_drawers(include_superseded=False):
+            try:
+                content = drawer.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for match in pattern.finditer(content):
+                meta = self._parse_frontmatter(content[:500])
+                results.append({
+                    "title": meta.get("title", drawer.stem),
+                    "path": str(drawer.relative_to(self.root)),
+                    "link_text": match.group(1),
+                })
+                break  # one backlink per file is enough
+        return results
+
+    @staticmethod
+    def _parse_frontmatter(text: str) -> dict:
+        """Quick frontmatter parser - no yaml dependency."""
+        meta: dict[str, str] = {}
+        if not text.startswith("---"):
+            return meta
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return meta
+        for line in parts[1].strip().splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                meta[k.strip()] = v.strip()
+        return meta

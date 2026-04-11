@@ -212,6 +212,14 @@ def _add_hooks_parser(sub: argparse._SubParsersAction) -> None:
     h.set_defaults(_dispatch="hooks")
 
 
+def _add_index_parser(sub: argparse._SubParsersAction) -> None:
+    i = sub.add_parser("index", help="Generate code-map and llms.txt from project source")
+    i.add_argument("--path", type=str, default=None, help="Project root (default: cwd)")
+    i.add_argument("--format", choices=["all", "code-map", "llms-txt"], default="all",
+                   help="Output format (default: both)")
+    i.set_defaults(_dispatch="index")
+
+
 def build_cli() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="mclaude",
@@ -226,6 +234,7 @@ def build_cli() -> argparse.ArgumentParser:
     _add_message_parser(sub)
     _add_mail_parser(sub)
     _add_identity_parser(sub)
+    _add_index_parser(sub)
     _add_status_parser(sub)
     _add_hooks_parser(sub)
 
@@ -528,6 +537,30 @@ def _dispatch_mail(args: argparse.Namespace) -> int:
     return 1
 
 
+def _dispatch_index(args: argparse.Namespace) -> int:
+    from .indexer import CodeIndex
+    from pathlib import Path as _Path
+
+    root = _Path(args.path) if args.path else _Path.cwd()
+    idx = CodeIndex(root)
+    idx.scan()
+
+    stats = idx.stats()
+    print(f"[index] scanned {root}: {stats['modules']} modules, "
+          f"{stats['classes']} classes, {stats['functions']} functions, "
+          f"{stats['total_lines']} lines")
+
+    fmt = args.format
+    if fmt in ("all", "code-map"):
+        path = idx.write_code_map()
+        print(f"[index] wrote {path}")
+    if fmt in ("all", "llms-txt"):
+        path = idx.write_llms_txt()
+        print(f"[index] wrote {path}")
+
+    return 0
+
+
 def _dispatch_status(args: argparse.Namespace) -> int:
     """Single-command overview of all five mclaude layers."""
     import json as _json
@@ -743,6 +776,8 @@ def main() -> int:
         return _dispatch_message(args)
     if dispatch == "mail":
         return _dispatch_mail(args)
+    if dispatch == "index":
+        return _dispatch_index(args)
     if dispatch == "identity":
         return _dispatch_identity(args)
     if dispatch == "status":

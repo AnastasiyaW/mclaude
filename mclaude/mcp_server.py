@@ -313,6 +313,33 @@ TOOLS = [
         },
     },
     {
+        "name": "mclaude_memory_find_similar",
+        "description": "Find existing memory drawers with similar titles (entity resolution). Use BEFORE saving to avoid duplicates.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Title to match against existing drawers"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "mclaude_memory_index",
+        "description": "Get a markdown table of ALL knowledge in the memory graph. Use at session start for context.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "mclaude_index",
+        "description": "Generate code-map.md and llms.txt from the project's Python source. Returns stats.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Project root (default: cwd)"},
+                "format": {"type": "string", "enum": ["all", "code-map", "llms-txt"], "description": "Output format"},
+            },
+        },
+    },
+    {
         "name": "mclaude_mail_digest",
         "description": "Summary of unread messages: count by sender and type.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -674,6 +701,39 @@ def _handle_status(params: dict) -> dict:
     return result
 
 
+def _handle_memory_find_similar(params: dict) -> dict:
+    graph = _memory.MemoryGraph()
+    similar = graph.find_similar(params["title"])
+    return {
+        "similar": similar[:10],
+        "count": len(similar),
+        "hint": "If a similar drawer exists, consider updating it via supersede() instead of creating a new one",
+    }
+
+
+def _handle_memory_index(params: dict) -> dict:
+    graph = _memory.MemoryGraph()
+    return {"index": graph.render_index()}
+
+
+def _handle_index(params: dict) -> dict:
+    from .indexer import CodeIndex
+    root = Path(params["path"]) if params.get("path") else Path.cwd()
+    idx = CodeIndex(root)
+    idx.scan()
+    fmt = params.get("format", "all")
+    outputs = []
+    if fmt in ("all", "code-map"):
+        p = idx.write_code_map()
+        outputs.append(str(p))
+    if fmt in ("all", "llms-txt"):
+        p = idx.write_llms_txt()
+        outputs.append(str(p))
+    stats = idx.stats()
+    stats["outputs"] = outputs
+    return stats
+
+
 def _handle_mail_check(params: dict) -> dict:
     identity = os.environ.get("MCLAUDE_IDENTITY", "")
     if not identity:
@@ -756,6 +816,9 @@ HANDLERS = {
     "mclaude_message_inbox": _handle_message_inbox,
     "mclaude_identity_whoami": _handle_identity_whoami,
     "mclaude_status": _handle_status,
+    "mclaude_memory_find_similar": _handle_memory_find_similar,
+    "mclaude_memory_index": _handle_memory_index,
+    "mclaude_index": _handle_index,
     "mclaude_mail_check": _handle_mail_check,
     "mclaude_mail_reply": _handle_mail_reply,
     "mclaude_mail_ask": _handle_mail_ask,

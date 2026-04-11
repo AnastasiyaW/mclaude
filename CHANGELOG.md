@@ -2,7 +2,7 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
-## 0.3.0 - 2026-04-10
+## 0.3.0 - 2026-04-11
 
 ### Added: Claude Code Hooks Integration
 
@@ -60,14 +60,47 @@ $ mclaude status
   Identities: ani, vasya
 ```
 
+### Added: MCP Server
+
+Native MCP (Model Context Protocol) integration - Claude Code can call mclaude
+tools directly via JSON-RPC instead of shelling out to the CLI.
+
+16 tools exposed: lock claim/release/status/list/heartbeat/force-release,
+handoff write/latest/list, memory save/search/core, message send/inbox,
+identity whoami, status overview.
+
+```json
+{
+  "mcpServers": {
+    "mclaude": {
+      "command": "python",
+      "args": ["-m", "mclaude.mcp_server"]
+    }
+  }
+}
+```
+
+Returns structured JSON instead of text that needs parsing. Zero dependencies
+beyond the mclaude package itself.
+
+### Added: Worktree Metadata Awareness
+
+Lock claims now auto-detect git worktree and branch information:
+
+- `worktree` field in lock metadata (auto-detected or `--worktree` override)
+- `branch` field shows current git branch
+- Both displayed in `lock status`, `lock list`, and MCP responses
+- Enables parallel work: "this lock is in worktree `feature-auth`, I'm in `main`"
+
 ### Tests
 
-- **22 new tests** (64 total, all passing):
+- **38 new tests** (80 total, all passing):
   - 5 SessionStart hook tests (empty project, handoffs, locks, messages, identity-gated)
   - 5 PreToolUse lock check tests (no locks, locked file, own lock, empty stdin, bad json)
   - 3 Stop hook tests (no activity, active locks warning, recent handoff suppression)
   - 4 pre-commit guard tests (no locks, locked blocks, own lock allows, unlocked passes)
   - 5 status command tests (empty, locks, handoffs, identity, registry)
+  - 16 MCP server tests (tool definitions, lock CRUD, handoff write/latest, memory save/search, messages, identity, status)
 
 ---
 

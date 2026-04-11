@@ -285,6 +285,26 @@ The pre-commit guard is the enforcement layer. Locks are advisory by default - a
 
 ---
 
+## MCP server (native Claude Code integration)
+
+mclaude ships an MCP server that lets Claude Code call tools directly - no `Bash("mclaude lock list")` parsing needed:
+
+```json
+// Add to .mcp.json or .claude/settings.json
+{
+  "mcpServers": {
+    "mclaude": {
+      "command": "python",
+      "args": ["-m", "mclaude.mcp_server"]
+    }
+  }
+}
+```
+
+Then Claude Code can call `mclaude_lock_claim`, `mclaude_handoff_latest`, `mclaude_memory_search`, etc. and get structured JSON back. 16 tools covering all five layers.
+
+---
+
 ## How you actually use this
 
 ### Single-session setup
@@ -396,7 +416,7 @@ Everything is text. Everything is atomic. Everything is grep-friendly.
 - **Stability:** alpha - the file formats are stable (we commit to not breaking them), but CLI flags and Python API may evolve in 0.x
 - **Tested on:** Python 3.9+, Windows 10/11, macOS, Linux
 - **Dependencies:** standard library only (argparse, dataclasses, pathlib, json, re, os, time, uuid)
-- **Tests:** 64 tests, all passing
+- **Tests:** 80 tests, all passing
 
 ---
 

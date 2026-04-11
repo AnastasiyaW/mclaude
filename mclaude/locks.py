@@ -163,6 +163,55 @@ def is_stale(slug: str) -> bool:
     return age is not None and age > STALE_AFTER_SECONDS
 
 
+def detect_worktree() -> str | None:
+    """Auto-detect if we're inside a git worktree. Returns worktree path or None."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode != 0:
+            return None
+        toplevel = result.stdout.strip()
+
+        # Check if this is a worktree (not the main working tree)
+        result2 = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=3,
+        )
+        result3 = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result2.returncode == 0 and result3.returncode == 0:
+            common = result2.stdout.strip()
+            gitdir = result3.stdout.strip()
+            # If git-dir != git-common-dir, we're in a worktree
+            if os.path.realpath(common) != os.path.realpath(gitdir):
+                return toplevel
+
+        return None
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+def detect_git_branch() -> str | None:
+    """Get current git branch name."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            return branch if branch != "HEAD" else None
+        return None
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
 # -- Commands ---------------------------------------------------------------
 
 def cmd_claim(args: argparse.Namespace) -> int:
@@ -194,7 +243,9 @@ def cmd_claim(args: argparse.Namespace) -> int:
     os.write(fd, session_id.encode("utf-8"))
     os.close(fd)
 
-    # Write metadata
+    # Write metadata (with worktree awareness)
+    worktree = getattr(args, "worktree", None) or detect_worktree()
+    branch = detect_git_branch()
     meta = {
         "slug": args.slug,
         "session_id": session_id,
@@ -203,6 +254,8 @@ def cmd_claim(args: argparse.Namespace) -> int:
         "working_directory": str(project_root()),
         "description": args.description,
         "files": args.files or [],
+        "worktree": worktree,
+        "branch": branch,
     }
     atomic_write(metadata_path(args.slug), json.dumps(meta, indent=2, ensure_ascii=False))
 
@@ -212,6 +265,10 @@ def cmd_claim(args: argparse.Namespace) -> int:
     print(f"[lock] claimed {args.slug}")
     print(f"  session:  {session_id}")
     print(f"  files:    {', '.join(args.files or [])}")
+    if worktree:
+        print(f"  worktree: {worktree}")
+    if branch:
+        print(f"  branch:   {branch}")
     print(f"  remember: refresh heartbeat every {STALE_AFTER_SECONDS // 6}s")
     return 0
 
@@ -244,6 +301,10 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"  claimed at:    {meta.get('claimed_at', '?')}")
     print(f"  description:   {meta.get('description', '?')}")
     print(f"  files:         {', '.join(meta.get('files', []) or [])}")
+    if meta.get("worktree"):
+        print(f"  worktree:      {meta['worktree']}")
+    if meta.get("branch"):
+        print(f"  branch:        {meta['branch']}")
     print(f"  heartbeat age: {age:.0f}s" if age is not None else "  heartbeat:     none")
     return 0
 
@@ -262,7 +323,10 @@ def cmd_list(args: argparse.Namespace) -> int:
         stale = is_stale(slug)
         tag = "STALE" if stale else "ACTIVE"
         age_str = f"{age:.0f}s" if age is not None else "?"
-        print(f"  [{tag}] {slug}")
+        wt = meta.get("worktree") or ""
+        br = meta.get("branch") or ""
+        location = f" ({br})" if br else (f" ({wt})" if wt else "")
+        print(f"  [{tag}] {slug}{location}")
         print(f"         session: {meta.get('session_id', '?')}")
         print(f"         doing:   {meta.get('description', '?')}")
         print(f"         heartbeat: {age_str} ago")
@@ -365,6 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--description", required=True, help="Short description of the work")
     c.add_argument("--session", help="Your session ID (otherwise generated)")
     c.add_argument("--files", nargs="*", help="File paths the work will touch")
+    c.add_argument("--worktree", help="Override worktree path (auto-detected if in a git worktree)")
     c.set_defaults(func=cmd_claim)
 
     h = sub.add_parser("heartbeat", help="Refresh the heartbeat for a lock you hold")

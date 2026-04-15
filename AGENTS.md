@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is mclaude - a multi-session collaboration layer for AI coding agents. It provides five file-based primitives (locks, handoffs, memory graph, identity registry, messages) plus Claude Code hooks integration that let parallel sessions coordinate without losing data.
+This is mclaude - a multi-session collaboration layer for AI coding agents. It provides six file-based primitives (locks, handoffs, memory graph, identity registry, messages, code indexer) plus Claude Code hooks integration that let parallel sessions coordinate without losing data.
 
 ## Purpose for you, the agent
 

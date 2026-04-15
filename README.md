@@ -6,7 +6,7 @@ When you have two Claude chats open on the same project - or two teammates runni
 
 mclaude is a small, file-based system that answers those questions. It does not replace your agent. It gives your agents a shared notebook, a shared lock box, a shared memory shelf, and a shared address book - all living as plain markdown and JSON inside your project.
 
-Five file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
+Six file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
 
 ---
 
@@ -30,9 +30,9 @@ No merge conflicts. No lost context. No "wait, why did they do it this way?" - t
 
 ---
 
-## The five layers
+## The six layers
 
-Each layer solves one specific problem. They are **orthogonal** - use one without the others, or all five together.
+Each layer solves one specific problem. They are **orthogonal** - use one without the others, or all six together.
 
 ### Layer 1 - Work Locks (`mclaude lock`)
 
@@ -230,6 +230,31 @@ $ mclaude message send --mailbox review --from ani --to reviewers \
 
 The message file format is deliberately simple markdown + YAML frontmatter. This matters because the upcoming `mclaude-hub` network layer uses the **same format** for WebSocket-delivered messages. A local exchange and a network exchange interoperate without translation - you can dump hub messages into local files and they work as local messages, or scan local files and push them to the hub.
 
+### Layer 6 - Code Indexer (`mclaude index`)
+
+*The problem:* A new session that joins a project (or joins a teammate's session) has no map of the codebase. It re-discovers architecture one file at a time, burning tokens and context on orientation.
+
+*The solution:* AST-based scanner that produces two artifacts:
+
+- `code-map.md` - full module/class/function architecture, human-readable
+- `llms.txt` - machine-readable index optimized for agent consumption
+
+```bash
+$ mclaude index
+[index] scanned 47 Python modules, 289 classes, 1,143 functions
+  code-map.md: 8.2 KB
+  llms.txt:    4.1 KB
+
+# Or via MCP (native Claude Code integration)
+# -> mclaude_index tool
+```
+
+Code map and memory knowledge index complement each other: code-map describes *structure* (what exists), memory drawers describe *decisions and gotchas* (why it exists that way). Together they replace the 15-minute "let me re-read the codebase" ritual that new sessions do by default.
+
+**Memory knowledge index** (`mclaude memory find-similar`, `mclaude_memory_index`) deduplicates drawers before you create overlapping ones. Word-overlap matching against existing drawers catches "I already wrote about this in another wing" before you fragment the knowledge.
+
+**Wiki-links** (`[[path]]` syntax in drawer bodies) turn the memory graph into a navigable web. `find_backlinks()` traces incoming references. Related section auto-renders from forward links. No database needed.
+
 ---
 
 ## Quick status
@@ -335,7 +360,7 @@ mclaude ships an MCP server that lets Claude Code call tools directly - no `Bash
 }
 ```
 
-Then Claude Code can call `mclaude_lock_claim`, `mclaude_handoff_latest`, `mclaude_memory_search`, etc. and get structured JSON back. 16 tools covering all five layers.
+Then Claude Code can call `mclaude_lock_claim`, `mclaude_handoff_latest`, `mclaude_memory_search`, etc. and get structured JSON back. 16+ tools covering all six layers (including `mclaude_index`, `mclaude_memory_find_similar`, `mclaude_memory_index`).
 
 ---
 
@@ -484,7 +509,7 @@ After installation, `mclaude` is available as a command in your shell. Run `mcla
 
 ## Optional extensions
 
-The core five layers work with zero dependencies. These extensions add network, desktop, and audio capabilities:
+The core six layers work with zero dependencies. These extensions add network, desktop, and audio capabilities:
 
 ### Hub server (`mclaude.hub`)
 
@@ -528,6 +553,21 @@ python project-kb/scaffold.py --name "my-project" --domains "backend,frontend,ap
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the full system architecture.
+
+---
+
+## Relation to architectural principles
+
+mclaude is the **production implementation** of several patterns documented abstractly in the [claude-code-config](https://github.com/AnastasiyaW/claude-code-config) principles repo:
+
+| claude-code-config principle | mclaude layer | What it means for you |
+|---|---|---|
+| [18 - Multi-Session Coordination](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/18-multi-session-coordination.md) | Layer 1 (Locks), Layer 2 (Handoffs) | mutex for exclusive resources + append-only handoffs for shared state |
+| [19 - Inter-Agent Communication](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/19-inter-agent-communication.md) | Layer 5 (Messages), Active mail | email-semantics inter-agent messaging with threading, delivery receipts, sent folder |
+| [07 - Codified Context](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/07-codified-context.md) | Layer 3 (Memory Graph), Layer 6 (Code Indexer) | runtime-config treatment of memory + on-demand architectural context |
+| [04 - Deterministic Orchestration](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/04-deterministic-orchestration.md) | All hooks and CLI commands | state lives in files; shell scripts for mechanical steps |
+
+If you want the theory and trade-offs, read the principles. If you want `pip install mclaude` that works today, you are already in the right repo.
 
 ---
 

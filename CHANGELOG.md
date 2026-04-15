@@ -2,6 +2,37 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
+## 0.6.0 - 2026-04-11
+
+### Added: Layer 6 - Code Indexer
+
+AST-based scanner that produces an architectural map of the codebase. Two output formats in one pass:
+
+- `code-map.md` - human-readable module/class/function tree
+- `llms.txt` - machine-readable index optimized for agent context injection
+
+New CLI command: `mclaude index`. New MCP tool: `mclaude_index`. A new session joining the project no longer needs the "let me re-read the codebase" 15-minute orientation - the map is already there.
+
+### Added: Memory knowledge index
+
+`build_index()` scans all drawers and returns a structured table. `find_similar()` does word-overlap matching against existing drawers before you create a new one - catches duplicate-knowledge fragmentation at write time. `render_index()` produces a markdown table for context injection.
+
+New MCP tools: `mclaude_memory_find_similar`, `mclaude_memory_index`.
+
+### Added: Wiki-links in memory drawers
+
+`Drawer.links` field plus `[[path]]` syntax in drawer bodies. Related section auto-renders from forward links. `find_backlinks()` traces incoming references. Turns the memory graph from a collection into a navigable web - no database, no index service, just markdown.
+
+### Tests
+
+27 new tests (193 total, all passing).
+
+### Relation to claude-code-config principle 19
+
+mclaude's messages layer (Layer 5) and active mail are the production implementation of the pattern documented abstractly in [claude-code-config principles/19 - Inter-Agent Communication](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/19-inter-agent-communication.md). That principle describes email-style inter-agent messaging as a pattern; mclaude is the battle-tested realization. If you want the theory, read the principle. If you want `pip install` that works today, use mclaude.
+
+---
+
 ## 0.5.0 - 2026-04-11
 
 ### Changed: Monorepo merge (mclaude-hub absorbed)

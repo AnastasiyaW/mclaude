@@ -128,15 +128,44 @@ This reduces false positives without reducing true positives.
   REPORT.md               # coordinator: deduplicated, triaged final report
 ```
 
-## Integration with SAST
+## Available security tools
 
-For maximum coverage, run SAST before the audit:
+Each specialist session should use the appropriate tools:
 
+### Built-in
+- `/security-review` - Anthropic's quick security diff scan (install: copy `security-review.md` to `.claude/commands/`)
+- `/plan-swarm-review` (code mode) - multi-agent with 5 security perspectives + CWE knowledge base
+
+### Trail of Bits Skills (github.com/trailofbits/skills)
+Clone once: `git clone --depth 1 https://github.com/trailofbits/skills.git .claude/trailofbits-skills`
+
+| Tool | Best for which specialist |
+|---|---|
+| `entry-point-analyzer` | **coordinator** - map attack surface before assigning work |
+| `static-analysis` | **injection-agent** - run Semgrep/CodeQL, interpret results |
+| `variant-analysis` | **any agent** - after finding one bug, find similar patterns |
+| `fp-check` | **coordinator** - verify findings before final report |
+| `constant-time-analysis` | **crypto-agent** - timing side-channels |
+| `zeroize-audit` | **crypto-agent** - secrets properly cleared from memory |
+| `insecure-defaults` | **logic-agent** - dangerous default configurations |
+| `semgrep-rule-creator` | **coordinator** - create rules for found patterns |
+| `supply-chain-risk-auditor` | **coordinator** - dependency audit |
+| `building-secure-contracts` | **injection-agent** - smart contract review |
+
+### CWE Knowledge Base
+Each specialist should read the relevant CWE entries from `knowledge-vault/docs/security/cwe/` before starting:
+- **injection-agent**: CWE-79 (XSS), CWE-89 (SQLi), CWE-918 (SSRF), CWE-434 (file upload), CWE-502 (deserialization)
+- **crypto-agent**: CWE-798 (hardcoded creds) + zeroize-audit
+- **concurrency-agent**: CWE-416 (use-after-free), CWE-787/125 (OOB write/read)
+- **logic-agent**: CWE-190 (integer overflow), CWE-400 (resource consumption)
+
+### SAST tools (if installed)
 ```bash
-# Layer 1: SAST scan
+# Semgrep - pattern-based SAST
 semgrep --config auto --json . > sast-results.json
 
-# Include SAST results in coordinator's scope message
+# CodeQL - semantic SAST (requires setup)
+codeql database create db --language=python && codeql database analyze db
 ```
 
 Coordinator distributes SAST findings to relevant specialists for contextual validation (Layer 2 filtering). This eliminates ~91% of false positives (SAST-Genius benchmark).

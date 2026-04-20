@@ -1,7 +1,7 @@
 """
 mclaude - multi-session collaboration layer for Claude Code and other AI agents.
 
-Five layers, all file-based, no external dependencies:
+Six layers, all file-based, no external dependencies:
 
 1. **locks** - atomic work claims prevent two sessions from accidentally
    working on the same task. Heartbeat-based stale detection. Project-local.
@@ -23,7 +23,13 @@ Five layers, all file-based, no external dependencies:
    .claude/messages/. Compatible file format with the network hub layer,
    so local files and remote messages interoperate without translation.
 
-All five layers are orthogonal - use one without the others, or all together.
+6. **indexer** - AST-based scanner producing an architectural map of the
+   codebase. Two outputs in one pass: `code-map.md` (human-readable tree)
+   and `llms.txt` (machine-readable index optimized for agent context
+   injection). New sessions joining the project no longer need the
+   "let me re-read the codebase" 15-minute orientation pass.
+
+All six layers are orthogonal - use one without the others, or all together.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

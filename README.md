@@ -459,6 +459,63 @@ Everything is text. Everything is atomic. Everything is grep-friendly.
 
 ---
 
+## How mclaude fits the 2026 orchestration landscape
+
+Multi-Claude orchestration went from niche to crowded in one quarter. Since February 2026, at least a dozen open-source projects have shipped variations on "run several Claude sessions together." Anthropic itself published experimental **Agent Teams** in Claude Code. This section sets expectations on where mclaude fits — what it does that the others do not, and what it deliberately does not try to do.
+
+### The landscape (April 2026)
+
+| Project | Differentiator | Best for |
+|---|---|---|
+| **[Claude Agent Teams](https://code.claude.com/docs/en/agent-teams)** | First-party, native to Claude Code. Team lead + teammates with separate context windows, shared task list. Experimental, disabled by default. | In-Claude coordination when you want Anthropic to own the protocol. |
+| **[affaan-m/claude-swarm](https://github.com/affaan-m/claude-swarm)** | Dependency-graph task decomposition. Parallel spawn for independent subtasks. Rich terminal UI. Built with Claude Agent SDK. | Breaking one large task into many parallel agents. |
+| **[nwiizo/ccswarm](https://github.com/nwiizo/ccswarm)** | Git worktree isolation per agent. Specialized roles. | Collaborative development where agents need filesystem-level isolation. |
+| **[dsifry/metaswarm](https://github.com/dsifry/metaswarm)** | Multi-tool runtime (Claude Code + Gemini CLI + Codex CLI). 18 agents / 13 skills / 15 commands. Self-improving. TDD-enforced. | Projects that want multiple model vendors in the same workflow. |
+| **[barkain/claude-code-workflow-orchestration](https://github.com/barkain/claude-code-workflow-orchestration)** | Claude Code plugin layered over Agent Teams when available. Native plan mode integration. | Drop-in orchestration on top of Anthropic's own primitives. |
+| **[am-will/swarms](https://github.com/am-will/swarms)** | Explicit task-dependency declarations. Orchestrator derives parallelism from the graph. | Task queues with clear upstream/downstream edges. |
+| **[ruvnet/ruflo](https://github.com/ruvnet/ruflo)** | Distributed swarm intelligence. RAG integration. Enterprise-oriented. | Production deployments with scale concerns. |
+| **[desplega-ai/agent-swarm](https://github.com/desplega-ai/agent-swarm)** | Docker container per agent. Lead delegates to workers. | Strong isolation where a rogue agent cannot reach beyond its box. |
+| **[swarmclawai/swarmclaw](https://github.com/swarmclawai/swarmclaw)** | Self-hosted runtime, 23+ LLM providers. | Provider-agnostic orchestration (Claude + GPT + Gemini + Ollama). |
+| **Multica** (closed OSS) | Open-source analog to Claude Managed Agents. Task lifecycle + concurrency + multi-model. | Teams that outgrew managed agents on claude.ai. |
+| **mclaude (this project)** | Knowledge infrastructure: handoffs / memory graph / identity / project KB / findings inbox. File-based, zero-dependency core. | Multi-session continuity when sessions outlive any one conversation. |
+
+### Where mclaude's edge is
+
+Orchestration — "spawn N agents, give them tasks, collect outputs" — is now a solved problem. Anthropic's Agent Teams does it natively, and each project in the table does it with a different flavor.
+
+**What is not solved is knowledge management across sessions.** When session 3 inherits work from session 1 that session 2 already continued, whose memory wins? What does the incoming agent read first? How do you prevent the same mistake in session 4 that session 2 already figured out? These are questions about **persistent structured context**, not about coordination.
+
+mclaude's differentiator is the answer to those questions:
+
+- **Handoffs with "NOT worked" sections** — dead ends do not get rediscovered.
+- **Memory graph with `superseded_by` versioning** — old decisions are findable but not misleading.
+- **Project KB as MCP memory drawers** — living documentation that the agent reads at start, not a static wiki.
+- **Findings inbox** (`_inbox/findings/`) — discrete capture zone for insights that do not yet belong in any specific memory file.
+- **Identity registry** — Claude sessions get human names, so handoffs read as "ani left notes for vasya" not "UUID-a went offline."
+
+All five layers are files in the repo. No daemon. No database. No cloud account. The orchestrators listed above can be layered on top; none of them replace the knowledge primitives.
+
+### When to pick what
+
+- **Start-up overhead is your concern** → Agent Teams (native) or barkain plugin (thin wrapper).
+- **Task decomposition is your concern** → claude-swarm (dependency graph) or am-will/swarms (explicit declarations).
+- **Isolation is your concern** → ccswarm (worktrees) or desplega-ai agent-swarm (containers).
+- **Multi-vendor LLMs are your concern** → metaswarm or swarmclaw.
+- **Cross-session knowledge continuity is your concern** → mclaude (by design). Pair it with one of the orchestrators if you also need coordination primitives mclaude does not ship.
+
+### Adoption ideas we are considering
+
+Reading the other projects has generated work items:
+
+- **Git worktree per session** (borrowed from ccswarm): we already name locks with worktree paths; the next step is to make the lock claim actually create a worktree, so isolation becomes real instead of naming.
+- **Quality gate phase** (borrowed from claude-swarm + metaswarm): today handoffs are advisory; a formal gate step between "work claimed" and "work released" would make review mandatory, not optional.
+- **Dependency graph on top of handoffs**: the handoff INDEX.md could carry `depends_on:` pointers, turning multi-session work into an explicit DAG.
+- **Plugin mode that rides on Agent Teams** when that API ships stably: let Anthropic own coordination, let mclaude own knowledge.
+
+None of these are in 0.5.0. They are openly tracked — contributions welcome.
+
+---
+
 ## What this is not
 
 - **Not an MCP server.** You can wire mclaude into Claude Code via MCP if you want, but the core is CLI + Python library. No server processes, no background daemons.

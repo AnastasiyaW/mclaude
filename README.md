@@ -98,6 +98,76 @@ $ mclaude handoff latest
 # ... full content of the latest handoff ...
 ```
 
+#### Rollup handoffs (for long-running projects)
+
+Once a project accumulates 20+ handoffs, reading the full pile at session start becomes the actual startup cost. A **rollup handoff** summarizes a span of prior handoffs and carries a pointer to where the summary ends. Old handoffs are kept for forensic lookup but get a backlink to the rollup that subsumed them. New sessions read: the rollup + only handoffs dated after its boundary.
+
+The pattern is borrowed from [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984), whose `thread_summaries.covered_until_message_id` column solves the same problem inside a SQLite schema. mclaude adapts it to markdown frontmatter + git.
+
+**File naming convention:**
+
+    .claude/handoffs/YYYY-MM-DD_HH-MM_rollup_<slug>.md
+
+The `rollup` segment is what makes it discoverable.
+
+**Frontmatter on the rollup file:**
+
+```yaml
+---
+type: rollup
+session: rollup-march-w1-3
+covers:
+  - 2026-03-01_12-00_session-01_kickoff
+  - 2026-03-02_14-30_session-02_auth-refactor
+  - ...
+  - 2026-03-15_18-00_session-12_ci-pipeline
+through: 2026-03-15 18:00
+author: ani
+---
+```
+
+**Backlink on each subsumed handoff:**
+
+The body of the old handoff is not rewritten. Only one frontmatter field is appended:
+
+```yaml
+rolled_up_into: 2026-03-16_09-00_rollup_march-weeks-1-3
+```
+
+**Session start protocol (currently manual):**
+
+1. `mclaude handoff index` (or read `INDEX.md`)
+2. Find the most recent line marked `ROLLUP`.
+3. Read that rollup.
+4. Read handoffs whose timestamp is **later** than the rollup's `through:` field.
+5. Skip any handoff with `rolled_up_into:` set — the rollup already covers it.
+
+**Status:** the frontmatter convention and INDEX.md marker are shipped. A `mclaude handoff rollup --through ...` CLI subcommand is planned, not yet written. Until then, roll up manually: copy the pattern above, list the covered handoffs in the `covers:` field, and append `rolled_up_into:` to each covered handoff's frontmatter.
+
+**When not to use rollups:** projects with fewer than ~10 handoffs, short-lived work where reading every handoff is still cheap, or audit-trail scenarios where truncation would be bad.
+
+For the cross-referenced principle write-up (chronicle + handoff + rollup interaction), see [claude-code-config alternatives/session-handoff.md §F](https://github.com/AnastasiyaW/claude-code-config/blob/main/alternatives/session-handoff.md) and [principle 16](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/16-project-chronicles.md).
+
+#### Agent attribution in handoffs
+
+When a session delegates work to sub-agents (via `Task()`, subagent skills, or a teammate session in Agent Teams), the handoff used to show only the parent session's identity. The rest was implicit.
+
+Borrowed from MF0-1984's split between `requested_provider_id` (who was asked) and `responding_provider_id` (who actually answered), mclaude adds two optional frontmatter fields to handoffs:
+
+```yaml
+invoked_by: ani                        # session that claimed the work (required)
+worked_by:                              # all agents that did real work (optional)
+  - ani
+  - explorer-sub                        # subagent name if a Task() was spawned
+  - ani                                 # parent again if it resumed after subagent
+```
+
+`worked_by:` is an ordered list — it reads left-to-right like a call stack. If work bounced between the parent session and a subagent several times, each switch is one entry.
+
+**Why it matters:** future sessions reading the handoff can see at a glance whether work was solo or delegated. For the [Principle 10 (Agent Security)](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/10-agent-security.md) inter-agent trust boundary, this is also the audit trail of which agent touched which decision.
+
+**Status:** optional field — handoffs without `worked_by:` continue to work as before.
+
 ### Layer 3 - Memory Graph (`mclaude memory`)
 
 *The problem:* Facts, decisions, and gotchas pile up over weeks. You remember you decided something about JWT vs sessions, but you cannot find where. Grepping 50 chat histories is painful.

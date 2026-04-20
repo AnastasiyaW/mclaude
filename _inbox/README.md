@@ -1,4 +1,4 @@
-# Inbox - staging area for mclaude-hub
+# Inbox - staging area for the mclaude repo
 
 Drop files here during work. Periodically sort into the repo proper.
 

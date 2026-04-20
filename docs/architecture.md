@@ -8,7 +8,7 @@ mclaude-hub is the **network + desktop + audio** extension for the file-based [m
 - **Desktop client** - system tray icon, notifications, voice I/O, TTS
 - **Claude bridge** - a small adapter that lets Claude Code push events to the hub and receive commands back
 
-All five mclaude layers (locks, handoffs, memory, registry, messages) continue to work file-based. The hub is **additive**: if the server is down, everything degrades to local file mode. If the desktop client is off, events queue in files and surface later. Nothing hard-fails just because a piece is missing.
+All six mclaude layers (locks, handoffs, memory, registry, messages, indexer) continue to work file-based. The hub is **additive**: if the server is down, everything degrades to local file mode. If the desktop client is off, events queue in files and surface later. Nothing hard-fails just because a piece is missing.
 
 ## The three new components
 

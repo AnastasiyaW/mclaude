@@ -489,11 +489,11 @@ mclaude's differentiator is the answer to those questions:
 
 - **Handoffs with "NOT worked" sections** — dead ends do not get rediscovered.
 - **Memory graph with `superseded_by` versioning** — old decisions are findable but not misleading.
-- **Project KB as MCP memory drawers** — living documentation that the agent reads at start, not a static wiki.
-- **Findings inbox** (`_inbox/findings/`) — discrete capture zone for insights that do not yet belong in any specific memory file.
+- **Project KB as an MkDocs scaffold** — living documentation served locally that the agent reads at start, not a static wiki.
+- **Findings inbox** (`_inbox/findings/`) — discrete capture zone for insights that do not yet belong in any specific memory file. Currently a manual workflow (markdown files only); a CLI surface is planned, not shipped.
 - **Identity registry** — Claude sessions get human names, so handoffs read as "ani left notes for vasya" not "UUID-a went offline."
 
-All five layers are files in the repo. No daemon. No database. No cloud account. The orchestrators listed above can be layered on top; none of them replace the knowledge primitives.
+All five of these knowledge primitives live as files in the repo. No daemon. No database. No cloud account. The six mclaude layers (locks + handoffs + memory + registry + messages + indexer) continue to provide coordination primitives — the orchestrators listed above can be layered on top of them, not in place of them.
 
 ### When to pick what
 
@@ -512,13 +512,13 @@ Reading the other projects has generated work items:
 - **Dependency graph on top of handoffs**: the handoff INDEX.md could carry `depends_on:` pointers, turning multi-session work into an explicit DAG.
 - **Plugin mode that rides on Agent Teams** when that API ships stably: let Anthropic own coordination, let mclaude own knowledge.
 
-None of these are in 0.5.0. They are openly tracked — contributions welcome.
+None of these are in 0.6.0. They are openly tracked — contributions welcome.
 
 ---
 
 ## What this is not
 
-- **Not an MCP server.** You can wire mclaude into Claude Code via MCP if you want, but the core is CLI + Python library. No server processes, no background daemons.
+- **Not only an MCP server.** mclaude ships an MCP server as one of its integration surfaces (see "MCP server" section above, 20+ tools), but the core is a CLI + Python library. Everything works without any server process running — MCP is additive, not required.
 - **Not an authentication system.** The registry names instances; it does not verify them. Trust comes from the transport.
 - **Not a replacement for Claude Code.** It is a thin layer on top that solves coordination problems Claude Code itself does not attempt.
 - **Not a MemPalace fork.** We borrow ideas from their research (hierarchical graph, raw verbatim beats extraction) but implement them as plain files without their dependencies.
@@ -528,11 +528,11 @@ None of these are in 0.5.0. They are openly tracked — contributions welcome.
 
 ## Status
 
-- **Version:** 0.5.0
+- **Version:** 0.6.0
 - **Stability:** alpha - the file formats are stable (we commit to not breaking them), but CLI flags and Python API may evolve in 0.x
 - **Tested on:** Python 3.9+, Windows 10/11, macOS, Linux
 - **Dependencies:** standard library only (argparse, dataclasses, pathlib, json, re, os, time, uuid)
-- **Tests:** 160+ tests, all passing (core + hub + bridge + audio)
+- **Tests:** 190+ tests, all passing (core + hub + bridge + audio + indexer)
 
 ---
 

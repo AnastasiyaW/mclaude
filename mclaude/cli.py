@@ -220,12 +220,26 @@ def _add_index_parser(sub: argparse._SubParsersAction) -> None:
     i.set_defaults(_dispatch="index")
 
 
+def _add_demo_parser(sub: argparse._SubParsersAction) -> None:
+    d = sub.add_parser(
+        "demo",
+        help="Run a deterministic playground showing all six layers (for README / articles)",
+    )
+    d.add_argument("--no-pause", action="store_true",
+                   help="Skip sleep between steps (fast CI mode)")
+    d.add_argument("--no-diagram", action="store_true",
+                   help="Skip Mermaid sequence diagram generation at end")
+    d.add_argument("--keep", action="store_true",
+                   help="Do not clean up the temp playground dir (default: keep)")
+    d.set_defaults(_dispatch="demo")
+
+
 def build_cli() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="mclaude",
         description="Multi-session collaboration layer for Claude Code agents.",
     )
-    p.add_argument("--version", action="version", version="%(prog)s 0.5.0")
+    p.add_argument("--version", action="version", version="%(prog)s 0.6.0")
     sub = p.add_subparsers(dest="command", required=True)
 
     _add_lock_parser(sub)
@@ -237,6 +251,7 @@ def build_cli() -> argparse.ArgumentParser:
     _add_index_parser(sub)
     _add_status_parser(sub)
     _add_hooks_parser(sub)
+    _add_demo_parser(sub)
 
     return p
 
@@ -664,11 +679,22 @@ def _dispatch_status(args: argparse.Namespace) -> int:
     if reg_path.exists():
         try:
             data = _json.loads(reg_path.read_text(encoding="utf-8"))
-            identities = data.get("identities", {})
-            names = ", ".join(sorted(identities.keys())) if identities else "none"
+            identities = data.get("identities", [])
+            # Schema v1 ships identities as a list of {name, owner, ...} dicts.
+            # Earlier ad-hoc writers used a dict keyed by name. Support both.
+            if isinstance(identities, dict):
+                id_names = sorted(identities.keys())
+            elif isinstance(identities, list):
+                id_names = sorted(
+                    item["name"] for item in identities
+                    if isinstance(item, dict) and "name" in item
+                )
+            else:
+                id_names = []
+            names = ", ".join(id_names) if id_names else "none"
             sections.append(f"Identities: {names}")
-        except Exception:
-            sections.append("Identities: (error reading registry)")
+        except Exception as exc:
+            sections.append(f"Identities: (error reading registry: {exc.__class__.__name__})")
     else:
         sections.append("Identities: none registered")
 
@@ -762,6 +788,74 @@ def _dispatch_hooks(args: argparse.Namespace) -> int:
     return 1
 
 
+def _dispatch_demo(args: argparse.Namespace) -> int:
+    """Run the playground demo + optional Mermaid diagram generation."""
+    import shutil
+    import subprocess
+    from pathlib import Path as _Path
+
+    scripts_dir = _Path(__file__).parent.parent / "scripts"
+    playground = scripts_dir / "playground.sh"
+    diagram = scripts_dir / "mclaude_diagram.py"
+
+    if not playground.exists():
+        print(f"[demo] playground.sh not found at {playground}", file=sys.stderr)
+        print("[demo] run from the mclaude repo checkout, or install from source.",
+              file=sys.stderr)
+        return 1
+
+    # Find a shell to run bash scripts on Windows too
+    shell = shutil.which("bash") or shutil.which("sh")
+    if not shell:
+        print("[demo] bash not found in PATH. On Windows use git-bash or WSL.",
+              file=sys.stderr)
+        return 1
+
+    cmd = [shell, str(playground)]
+    if args.no_pause:
+        cmd.append("--no-pause")
+
+    # Capture output so we can surface the temp playground dir for the diagram step
+    print("[demo] running playground — this may take ~30 seconds...", flush=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Stream what happened
+    print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end="")
+    if result.returncode != 0:
+        print(f"[demo] playground exited with {result.returncode}", file=sys.stderr)
+        return result.returncode
+
+    # Extract temp dir from the playground output (line: "playground dir: /tmp/...")
+    import re as _re
+    m = _re.search(r"^playground dir: (.+)$", result.stdout, _re.MULTILINE)
+    if not m:
+        print("[demo] could not find playground dir in output", file=sys.stderr)
+        return 0
+    temp_dir = m.group(1).strip()
+
+    if args.no_diagram or not diagram.exists():
+        print(f"[demo] done. Inspect: {temp_dir}")
+        return 0
+
+    # Generate Mermaid diagram
+    print("\n[demo] generating Mermaid sequence diagram from the playground state...")
+    diagram_result = subprocess.run(
+        [sys.executable, str(diagram), temp_dir, "--out", f"{temp_dir}/diagram.md"],
+        capture_output=True, text=True,
+    )
+    if diagram_result.returncode != 0:
+        print(f"[demo] diagram generation failed: {diagram_result.stderr}",
+              file=sys.stderr)
+    else:
+        print(f"[demo] diagram at {temp_dir}/diagram.md")
+        print(diagram_result.stderr, file=sys.stderr, end="")  # progress line went to stderr
+
+    print(f"\n[demo] full playground preserved at {temp_dir}")
+    print("[demo] paste diagram.md into any GitHub / Habr post to render as SVG.")
+    return 0
+
+
 def main() -> int:
     parser = build_cli()
     args = parser.parse_args()
@@ -784,6 +878,8 @@ def main() -> int:
         return _dispatch_status(args)
     if dispatch == "hooks":
         return _dispatch_hooks(args)
+    if dispatch == "demo":
+        return _dispatch_demo(args)
     parser.print_help()
     return 1
 

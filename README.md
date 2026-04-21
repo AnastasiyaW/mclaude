@@ -30,6 +30,46 @@ No merge conflicts. No lost context. No "wait, why did they do it this way?" - t
 
 ---
 
+## See it work in 30 seconds
+
+Before committing to the layer-by-layer reading below, run the deterministic demo. It spins up a temp directory, walks two simulated sessions (`ani` and `vasya`) through all six coordination layers, and generates a Mermaid sequence diagram of what happened.
+
+```bash
+pip install mclaude         # or: pip install -e . from a checkout
+mclaude demo --no-pause      # ~30 seconds, everything real (not mocked)
+```
+
+Output:
+
+1. A `STEP N/17` narration of the coordination — lock claim, collision, question by Mail, answer, memory save, handoff with `worked_by:` attribution, lock release, rollup of older handoffs.
+2. A list of every file the demo created under `.claude/`.
+3. A Mermaid sequence diagram printed to the terminal, also written to `<temp>/diagram.md`. Paste it into any GitHub / Habr / Medium post and it renders as SVG natively.
+
+Example of the generated diagram:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ani
+    participant vasya
+    participant files as .claude/ files
+    ani->>files: CLAIM lock (refactor-auth-middleware)
+    vasya->>ani: question -- Is the race condition in write path or in read path?
+    ani-->>vasya: answer -- Re: Is the race condition in write path or in read path?
+    ani->>files: save memory in project-demo/auth-system (Race condition is in write path, not read path)
+    ani->>files: write handoff (refactor auth middleware)
+    ani->>files: RELEASE lock (refactor-auth-middleware)
+    Note over files: ROLLUP -- rolls up 3 handoff(s)
+```
+
+Useful companions in the `scripts/` folder:
+
+- `scripts/playground.sh` — the raw demo driver, callable directly.
+- `scripts/mclaude_watch.py` — live observer. Run it in a second terminal before `mclaude demo` and watch each `.claude/` event print as it happens.
+- `scripts/mclaude_diagram.py` — regenerate the Mermaid diagram from any `.claude/` tree, not just demo output. Useful at the end of a real long-running project.
+
+---
+
 ## The six layers
 
 Each layer solves one specific problem. They are **orthogonal** - use one without the others, or all six together.

@@ -452,6 +452,46 @@ answer = mail.wait_for_reply(thread, timeout=120)  # blocks up to 2 min
 
 **Hub sync**: if `MCLAUDE_HUB_URL` and `MCLAUDE_HUB_TOKEN` are set, `mclaude mail sync` pushes local messages to hub and pulls hub messages locally. The hook does this automatically before each check.
 
+### Real-time mid-conversation delivery (Claude Code Monitor integration)
+
+The `UserPromptSubmit` hook delivers mail only **when the user types the next prompt**. If the user stepped away (coffee, meeting) and a teammate's Claude sends an urgent letter — the running agent does not see it until the next human interaction.
+
+For sessions that need to react mid-conversation, use Claude Code's built-in `Monitor` tool with the shipped polling script. Each new message produces one stdout line, which Claude Code delivers as a notification to the agent immediately — no user ping required.
+
+```python
+# Inside Claude Code, start once per session:
+Monitor(
+    command="bash scripts/mclaude_inbox_monitor.sh",
+    description="mclaude inbox for ani",
+    persistent=True,
+)
+```
+
+The script (`scripts/mclaude_inbox_monitor.sh`) polls `.claude/messages/inbox/` every 30 seconds, filters by `MCLAUDE_IDENTITY` (plus `to: "*"` broadcasts), and emits one notification line per new message:
+
+```
+URGENT new-mail from=vasya type=question subject="deploy is failing" file=2026-04-22_14-32_vasya_deploy.md
+```
+
+Configuration:
+- `MCLAUDE_IDENTITY=ani` — required, same as for the hook.
+- `MCLAUDE_INBOX_DIR` — optional, defaults to `.claude/messages/inbox`.
+- `MCLAUDE_POLL_SEC` — optional, defaults to `30`.
+
+Coverage: the script emits on every **new** file in the inbox. It does not emit on status changes (unread→read), deletions, or body edits. First invocation marks existing messages as "seen" so you don't get a flood of historical notifications.
+
+When to use it:
+- Long-running sessions (overnight training, multi-hour refactors) where you want Claude to react to teammate messages promptly.
+- Pair-programming across laptops where `UserPromptSubmit`-only delivery leaves a lag.
+- Any scenario where you've observed "Claude didn't see the message until I typed something".
+
+When not to use it:
+- Short sessions (<30 min) — the hook alone is enough.
+- Solo work with no teammate sessions running.
+- Environments where the Claude Code Monitor tool is not available (falls back to hook-only delivery — nothing breaks).
+
+The `Monitor`-based approach complements the hook; both can run simultaneously. The hook catches messages at prompt boundaries (with hub sync); the script catches them continuously (local inbox only, unless combined with `mclaude mail sync` in another watch).
+
 ---
 
 ## MCP server (native Claude Code integration)

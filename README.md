@@ -777,6 +777,15 @@ python project-kb/scaffold.py --name "my-project" --domains "backend,frontend,ap
 
 See [docs/architecture.md](docs/architecture.md) for the full system architecture.
 
+## Longer-form guides
+
+Complementary docs for teams using mclaude on real projects:
+
+- **[docs/knowledge-base-construction.md](docs/knowledge-base-construction.md)** — how to build a compressed knowledge base with wiki-links (avoiding "todo confirmation loops" and stale references). Covers verbatim-over-summaries, `valid_from`/`superseded_by` chains, integration with handoffs, and retrieval patterns.
+- **[docs/code-review-agents.md](docs/code-review-agents.md)** — proof-loop pattern for code review agents that cannot fabricate findings. Generator + verifier split across independent sessions, structured evidence requirements, prompt library, anti-patterns.
+- **[docs/security-audit-recipe.md](docs/security-audit-recipe.md)** — security audit workflow.
+- **[rules/mclaude-coordination.md](rules/mclaude-coordination.md)** — drop-in rules for your project's `CLAUDE.md` that tell any agent how to use mclaude primitives at session start, before editing, at session end.
+
 ---
 
 ## Relation to architectural principles

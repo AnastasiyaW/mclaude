@@ -516,6 +516,22 @@ The files are the source of truth. Vector indexes are derived and can be rebuilt
 
 ---
 
+## Companion: claude-code-config
+
+mclaude handles **coordination** (who does what, when, how they communicate). For **principles, safety, and verification**, pair with [claude-code-config](https://github.com/AnastasiyaW/claude-code-config) - 23 architectural principles, 15 safety hooks, and tools that complement mclaude layers:
+
+| mclaude layer | claude-code-config complement |
+|---|---|
+| Handoffs | [Verification Contract](https://github.com/AnastasiyaW/claude-code-config/blob/main/HOW-IT-WORKS.md#handoff-as-verification-contract) - handoff includes checkable items for the next session |
+| Locks | [GPU Lock Protocol](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/18-multi-session-coordination.md) - extended lock pattern for GPU resources |
+| Messages | [Inter-Agent Communication](https://github.com/AnastasiyaW/claude-code-config/blob/main/principles/19-inter-agent-communication.md) - formal mailbox pattern theory |
+| Memory | [KB-Aware Verification](https://github.com/AnastasiyaW/claude-code-config/blob/main/skills/development/proof-verify/references/kb-aware-verification.md) - verify code against project KB |
+| All layers | [Proof-Verify Skill](https://github.com/AnastasiyaW/claude-code-config/blob/main/skills/development/proof-verify/SKILL.md) - plan → build → independent verify → fix loop |
+
+**Proof-verify in multi-session context:** Session A creates `.proof/PLAN.md` and builds. Session B (fresh context, different mclaude identity) runs verification against the plan. The lock system prevents both from editing simultaneously. Messages pass verification results. Memory stores learnings.
+
+---
+
 ## Design principles
 
 These are non-negotiable. If a contribution breaks one of these, it is rejected.

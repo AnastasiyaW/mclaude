@@ -121,6 +121,11 @@ class Handoff:
     slug_override: str | None = None  # if caller wants to name it manually
     timestamp: str | None = None  # ISO format, defaults to now
     status: str = "ACTIVE"  # ACTIVE | RESUMED | CLOSED | ABANDONED
+    # Generic cross-references to external systems. Opaque strings of the
+    # form "provider:id" (e.g. "vikunja:1247", "linear:ENG-42", "gh:123").
+    # mclaude stores them verbatim and does NOT call any provider - that
+    # is the job of external tools that scan handoff files.
+    refs: list[str] = field(default_factory=list)
 
     def session_short(self) -> str:
         """First 8 chars of session_id, or a random 8-char hex if ID is shorter."""
@@ -212,6 +217,15 @@ class Handoff:
             lines.append("")
             for task in self.background_tasks:
                 lines.append(f"- {task}")
+            lines.append("")
+        if self.refs:
+            # External references as a machine-parseable section. External
+            # tools (bot scripts, cron jobs) grep for "## Refs" and read
+            # `provider:id` tokens. mclaude itself does nothing with them.
+            lines.append("## Refs")
+            lines.append("")
+            for r in self.refs:
+                lines.append(f"- {r}")
             lines.append("")
         lines.append("## Next step")
         lines.append("")

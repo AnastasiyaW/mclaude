@@ -137,6 +137,63 @@ def section_messages(root: Path) -> list[str]:
     return lines
 
 
+def section_realtime_hint(root: Path) -> list[str]:
+    """
+    Suggest starting the real-time inbox Monitor if not already running.
+
+    We cannot detect running Monitor tasks from here (hook runs in sibling
+    process, no agent state access). So emit an idempotent hint ONLY if:
+      - Identity is set (implies real collaboration setup)
+      - inbox_monitor.sh script exists in the project or via mclaude install
+      - Not already started flag file present
+
+    Once the agent starts the Monitor, it writes a flag file so this
+    suggestion does not re-appear in later sessions.
+    """
+    identity = os.environ.get("MCLAUDE_IDENTITY", "")
+    if not identity:
+        return []
+
+    # Find the script relative to common install locations
+    script_candidates = [
+        root / "scripts" / "mclaude_inbox_monitor.sh",
+        root / ".claude" / "scripts" / "mclaude_inbox_monitor.sh",
+    ]
+    script_path = next((p for p in script_candidates if p.exists()), None)
+    if script_path is None:
+        return []  # Script not installed — silent
+
+    # Once-per-project suppression after agent confirms it started the monitor
+    started_flag = root / ".claude" / "messages" / ".monitor_started"
+    if started_flag.exists():
+        return []
+
+    lines = [
+        "## Real-time inbox (Monitor tool recommended)",
+        "",
+        f"The Monitor polling script is available at `{script_path.relative_to(root)}`.",
+        "Starting it keeps you notified of new teammate letters mid-conversation",
+        "(without waiting for the next user prompt). Recommended for long-running",
+        "sessions (>30 min) with active collaborators.",
+        "",
+        "Start once per session:",
+        "",
+        "```python",
+        "Monitor(",
+        f'    command="bash {script_path.relative_to(root).as_posix()}",',
+        f'    description="mclaude inbox for {identity}",',
+        "    persistent=True,",
+        ")",
+        "```",
+        "",
+        "After starting, create an empty flag file so this hint stops appearing:",
+        "",
+        f"    touch {started_flag.relative_to(root).as_posix()}",
+        "",
+    ]
+    return lines
+
+
 def section_locks(root: Path) -> list[str]:
     """Show active locks overview."""
     locks_dir = root / ".claude" / "locks" / "active-work"

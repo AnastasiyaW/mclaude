@@ -6,7 +6,7 @@ When you have two Claude chats open on the same project - or two teammates runni
 
 mclaude is a small, file-based system that answers those questions. It does not replace your agent. It gives your agents a shared notebook, a shared lock box, a shared memory shelf, and a shared address book - all living as plain markdown and JSON inside your project.
 
-Six file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
+Seven file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
 
 ---
 
@@ -27,6 +27,16 @@ mclaude turns this into:
 > **Monday, 10:12 AM.** Your Claude finishes, releases the lock with a summary, writes a handoff. Teammate's Claude reads the handoff, continues the work on a different file, extends the fix with tests.
 
 No merge conflicts. No lost context. No "wait, why did they do it this way?" - the decisions are in the handoff.
+
+---
+
+## Want to set it up on your project right now?
+
+Read **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - step-by-step in 10 minutes, from `pip install` to a working parallel-session setup. Covers install, identity, first lock, first handoff, memory, SessionStart hooks, and the minimum viable layers you actually need.
+
+**Pair with [claude-code-config](https://github.com/AnastasiyaW/claude-code-config) for safety and principles.** mclaude is the runtime (who does what, when); claude-code-config is the rulebook (23 architectural principles, 14 safety hooks, the `proof-verify` skill). Parallel sessions especially benefit from `destructive-command-guard`, `git-destructive-guard`, and `git-auto-backup` - they protect shared state while mclaude coordinates access. See [Step 9 in QUICKSTART](docs/QUICKSTART.md#step-9-pair-with-claude-code-config-recommended) for the exact install.
+
+For external task tracker integration (Linear, Jira, GitHub, Vikunja), see **[examples/integrations/](examples/integrations/)** - ~200-line template scripts you copy into your own repo. mclaude itself never calls a tracker; integration glue belongs to the team that uses it.
 
 ---
 
@@ -367,6 +377,32 @@ Code map and memory knowledge index complement each other: code-map describes *s
 
 ---
 
+### Layer 7 - Heartbeats (`mclaude.heartbeat`)
+
+*The problem:* A lock or a claimed task was taken 40 minutes ago and has had no visible activity since. Is the session still working? Did it crash? Did the human close the tab and forget?
+
+*The solution:* Running sessions periodically write a small JSON file with `last_beat`, current activity, and held locks. Other sessions can see who is live versus who is probably dead. This is the same pattern as Kubernetes liveness probes, but file-based instead of network-based.
+
+```python
+from mclaude.heartbeat import beat, list_live, list_stale
+
+# Every few minutes the session calls:
+beat(root, identity="ani", session_id="sess-a1",
+     activity="running tests on auth-race fix",
+     lock_slugs=["fix-auth-race"])
+
+# Any other session can ask:
+live = list_live(root, stale_after=600)    # default 10 min threshold
+for b in live:
+    print(f"{b.identity} [{b.runtime}] -> {b.current_activity}")
+```
+
+`list_stale()` returns sessions whose last beat is older than the threshold - candidates for GC (locks they hold may be reclaimable after human check).
+
+This is the file-based analogue of Multica's WebSocket progress stream. No server, no push - just periodic writes with atomic rename. Works offline, works in CI, degrades gracefully if a session dies.
+
+---
+
 ## Quick status
 
 One command to see everything:
@@ -452,6 +488,46 @@ answer = mail.wait_for_reply(thread, timeout=120)  # blocks up to 2 min
 
 **Hub sync**: if `MCLAUDE_HUB_URL` and `MCLAUDE_HUB_TOKEN` are set, `mclaude mail sync` pushes local messages to hub and pulls hub messages locally. The hook does this automatically before each check.
 
+### Real-time mid-conversation delivery (Claude Code Monitor integration)
+
+The `UserPromptSubmit` hook delivers mail only **when the user types the next prompt**. If the user stepped away (coffee, meeting) and a teammate's Claude sends an urgent letter — the running agent does not see it until the next human interaction.
+
+For sessions that need to react mid-conversation, use Claude Code's built-in `Monitor` tool with the shipped polling script. Each new message produces one stdout line, which Claude Code delivers as a notification to the agent immediately — no user ping required.
+
+```python
+# Inside Claude Code, start once per session:
+Monitor(
+    command="bash scripts/mclaude_inbox_monitor.sh",
+    description="mclaude inbox for ani",
+    persistent=True,
+)
+```
+
+The script (`scripts/mclaude_inbox_monitor.sh`) polls `.claude/messages/inbox/` every 30 seconds, filters by `MCLAUDE_IDENTITY` (plus `to: "*"` broadcasts), and emits one notification line per new message:
+
+```
+URGENT new-mail from=vasya type=question subject="deploy is failing" file=2026-04-22_14-32_vasya_deploy.md
+```
+
+Configuration:
+- `MCLAUDE_IDENTITY=ani` — required, same as for the hook.
+- `MCLAUDE_INBOX_DIR` — optional, defaults to `.claude/messages/inbox`.
+- `MCLAUDE_POLL_SEC` — optional, defaults to `30`.
+
+Coverage: the script emits on every **new** file in the inbox. It does not emit on status changes (unread→read), deletions, or body edits. First invocation marks existing messages as "seen" so you don't get a flood of historical notifications.
+
+When to use it:
+- Long-running sessions (overnight training, multi-hour refactors) where you want Claude to react to teammate messages promptly.
+- Pair-programming across laptops where `UserPromptSubmit`-only delivery leaves a lag.
+- Any scenario where you've observed "Claude didn't see the message until I typed something".
+
+When not to use it:
+- Short sessions (<30 min) — the hook alone is enough.
+- Solo work with no teammate sessions running.
+- Environments where the Claude Code Monitor tool is not available (falls back to hook-only delivery — nothing breaks).
+
+The `Monitor`-based approach complements the hook; both can run simultaneously. The hook catches messages at prompt boundaries (with hub sync); the script catches them continuously (local inbox only, unless combined with `mclaude mail sync` in another watch).
+
 ---
 
 ## MCP server (native Claude Code integration)
@@ -529,6 +605,14 @@ mclaude handles **coordination** (who does what, when, how they communicate). Fo
 | All layers | [Proof-Verify Skill](https://github.com/AnastasiyaW/claude-code-config/blob/main/skills/development/proof-verify/SKILL.md) - plan → build → independent verify → fix loop |
 
 **Proof-verify in multi-session context:** Session A creates `.proof/PLAN.md` and builds. Session B (fresh context, different mclaude identity) runs verification against the plan. The lock system prevents both from editing simultaneously. Messages pass verification results. Memory stores learnings.
+
+## External tracker integration
+
+mclaude itself does NOT call any external task tracker (Vikunja, Linear, Jira, GitHub, ...). That would couple a library meant to be reusable to one team's stack.
+
+Instead, handoffs carry an optional `refs: list[str]` field with opaque `provider:id` tokens (e.g. `vikunja:1247`, `linear:ENG-42`). mclaude renders them as a `## Refs` section. External tooling - a cron job, a bot, a plain script - scans handoff files, extracts refs, and does whatever integration you want (post comments, close tasks, sync status).
+
+This keeps mclaude tiny and portable, while letting each team wire their own tracker in a few dozen lines of code.
 
 ---
 
@@ -736,6 +820,15 @@ python project-kb/scaffold.py --name "my-project" --domains "backend,frontend,ap
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the full system architecture.
+
+## Longer-form guides
+
+Complementary docs for teams using mclaude on real projects:
+
+- **[docs/knowledge-base-construction.md](docs/knowledge-base-construction.md)** — how to build a compressed knowledge base with wiki-links (avoiding "todo confirmation loops" and stale references). Covers verbatim-over-summaries, `valid_from`/`superseded_by` chains, integration with handoffs, and retrieval patterns.
+- **[docs/code-review-agents.md](docs/code-review-agents.md)** — proof-loop pattern for code review agents that cannot fabricate findings. Generator + verifier split across independent sessions, structured evidence requirements, prompt library, anti-patterns.
+- **[docs/security-audit-recipe.md](docs/security-audit-recipe.md)** — security audit workflow.
+- **[rules/mclaude-coordination.md](rules/mclaude-coordination.md)** — drop-in rules for your project's `CLAUDE.md` that tell any agent how to use mclaude primitives at session start, before editing, at session end.
 
 ---
 

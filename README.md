@@ -34,6 +34,8 @@ No merge conflicts. No lost context. No "wait, why did they do it this way?" - t
 
 Read **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - step-by-step in 10 minutes, from `pip install` to a working parallel-session setup. Covers install, identity, first lock, first handoff, memory, SessionStart hooks, and the minimum viable layers you actually need.
 
+**Pair with [claude-code-config](https://github.com/AnastasiyaW/claude-code-config) for safety and principles.** mclaude is the runtime (who does what, when); claude-code-config is the rulebook (23 architectural principles, 14 safety hooks, the `proof-verify` skill). Parallel sessions especially benefit from `destructive-command-guard`, `git-destructive-guard`, and `git-auto-backup` - they protect shared state while mclaude coordinates access. See [Step 9 in QUICKSTART](docs/QUICKSTART.md#step-9-pair-with-claude-code-config-recommended) for the exact install.
+
 For external task tracker integration (Linear, Jira, GitHub, Vikunja), see **[examples/integrations/](examples/integrations/)** - ~200-line template scripts you copy into your own repo. mclaude itself never calls a tracker; integration glue belongs to the team that uses it.
 
 ---

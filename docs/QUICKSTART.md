@@ -259,7 +259,65 @@ gitignore it, others version it for auditing. Either works.
 
 ---
 
-## Step 9: pick your integrations
+## Step 9: pair with claude-code-config (recommended)
+
+mclaude handles coordination (who does what, when). It deliberately does
+NOT ship safety hooks or architectural principles - that job belongs to
+its companion repository,
+[claude-code-config](https://github.com/AnastasiyaW/claude-code-config).
+
+Why pair them: parallel Claude sessions share a filesystem and a git
+repo. One session can `rm -rf` or `git push --force` state another
+session is actively using. mclaude's locks prevent double-work, but
+they do not stop a confused agent from typing a destructive command.
+claude-code-config's `PreToolUse` hooks do.
+
+Install as a Claude Code plugin (simplest):
+
+```bash
+claude plugin install https://github.com/AnastasiyaW/claude-code-config
+```
+
+Or, if you prefer to keep copies in your own tree:
+
+```bash
+git clone https://github.com/AnastasiyaW/claude-code-config ~/claude-code-config
+# Copy the hooks that matter most for multi-session work
+mkdir -p ~/.claude/hooks
+cp ~/claude-code-config/hooks/destructive-command-guard.py   ~/.claude/hooks/
+cp ~/claude-code-config/hooks/git-destructive-guard.py       ~/.claude/hooks/
+cp ~/claude-code-config/hooks/git-auto-backup.py             ~/.claude/hooks/
+cp ~/claude-code-config/hooks/secret-leak-guard.py           ~/.claude/hooks/
+cp ~/claude-code-config/hooks/session-drift-validator.py     ~/.claude/hooks/
+```
+
+Register them in `~/.claude/settings.json` under `hooks.PreToolUse` /
+`hooks.SessionStart` (see `hooks/README.md` in claude-code-config for
+the exact JSON snippet).
+
+The mclaude layers gain specific pairings:
+
+| mclaude layer | Pair with | Why |
+|---|---|---|
+| Locks (Layer 1) | `git-destructive-guard`, `git-auto-backup` | Locks stop you from picking the same task. Hooks stop you from destroying the shared repo. |
+| Handoffs (Layer 2) | `secret-leak-guard`, `session-drift-validator` | Handoff contents should not leak secrets; drift validator catches broken paths the previous session left behind. |
+| Memory (Layer 3) | `proof-verify` skill | KB-aware verification reads memory drawers as conformance source. |
+| All layers | `destructive-command-guard` | Any session can type `rm -rf`. The hook blocks before damage. |
+
+Verify the pair works:
+
+```bash
+# Try a destructive command - it should be blocked
+echo "rm -rf /" | claude chat     # if the hook is installed, agent refuses
+```
+
+Full list of 23 architectural principles and 14 hooks is in
+claude-code-config's README. Start with the five hooks above - they
+cover 90% of multi-session failure modes we have seen in production.
+
+---
+
+## Step 10: pick your task-tracker integrations
 
 mclaude does NOT call any task tracker (Vikunja, Linear, Jira, GitHub
 Projects). It deliberately stays generic so you can plug any tracker in
@@ -284,7 +342,7 @@ adaptation for Linear.
 
 ---
 
-## Step 10: how much value can you get out of this?
+## Step 11: how much value can you get out of this?
 
 mclaude scales with how many of its layers you actually use:
 

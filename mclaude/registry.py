@@ -146,6 +146,17 @@ class Identity:
             self.last_seen = now
 
 
+def _known_fields(entry: dict) -> dict:
+    """Keep only keys that Identity accepts.
+
+    Protects against forward-compat drift: an older mclaude reading a
+    registry.json written by a newer version should ignore unknown fields
+    rather than crash with `TypeError: unexpected keyword argument`.
+    """
+    allowed = set(Identity.__dataclass_fields__.keys())
+    return {k: v for k, v in entry.items() if k in allowed}
+
+
 class Registry:
     """Project-local identity registry.
 
@@ -210,12 +221,12 @@ class Registry:
         data = self._load()
         for entry in data["identities"]:
             if entry["name"] == name:
-                return Identity(**entry)
+                return Identity(**_known_fields(entry))
         return None
 
     def list_all(self) -> list[Identity]:
         data = self._load()
-        return [Identity(**entry) for entry in data["identities"]]
+        return [Identity(**_known_fields(entry)) for entry in data["identities"]]
 
     def remove(self, name: str) -> bool:
         """Remove an identity by name. Returns True if it was present."""

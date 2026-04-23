@@ -72,6 +72,10 @@ def _add_handoff_parser(sub: argparse._SubParsersAction) -> None:
     write.add_argument("--broken", nargs="*", default=[], help="Currently broken")
     write.add_argument("--blocked", nargs="*", default=[], help="External blockers")
     write.add_argument("--next-step", default="", help="Single concrete next action")
+    write.add_argument("--refs", nargs="*", default=[],
+                       help="External cross-references as `provider:id` tokens "
+                            "(e.g. vikunja:1247 linear:ENG-42). mclaude stores "
+                            "them verbatim; external scripts pick them up.")
 
     list_cmd = h_sub.add_parser("list", help="List handoff files")
     list_cmd.add_argument("--status", help="Filter by status (ACTIVE, CLOSED, etc)")
@@ -155,6 +159,9 @@ def _add_identity_parser(sub: argparse._SubParsersAction) -> None:
     reg.add_argument("--owner", default="")
     reg.add_argument("--machine", default="")
     reg.add_argument("--roles", nargs="*", default=[])
+    reg.add_argument("--runtime", default="",
+                     help="Agent runtime driving this identity "
+                          "(e.g. claude-code, codex, cursor, opencode)")
     reg.add_argument("--notify", nargs="*", default=[], help="key:value pairs, e.g. telegram:123")
 
     i_sub.add_parser("list", help="List all identities")
@@ -304,6 +311,7 @@ def _dispatch_handoff(args: argparse.Namespace) -> int:
             blocked=args.blocked,
             next_step=args.next_step,
             slug_override=args.slug,
+            refs=getattr(args, "refs", []) or [],
         )
         path = store.write(h)
         print(f"[handoff] written {path}")
@@ -453,6 +461,7 @@ def _dispatch_identity(args: argparse.Namespace) -> int:
             machine=args.machine,
             roles=args.roles,
             notify=notify,
+            runtime=getattr(args, "runtime", "") or "",
         )
         stored = reg.register(identity)
         print(f"[identity] registered {stored.name} (id={stored.id})")

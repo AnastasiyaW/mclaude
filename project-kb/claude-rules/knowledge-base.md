@@ -18,12 +18,15 @@ curl -s http://localhost:8200/llms.txt
 
 If the Project KB has an article for the module you are implementing - follow it. The code in KB articles is canonical.
 
-### Layer 2: Public KB (happyin.space) - check SECOND
+### Layer 2: Public KB (optional, team-defined) - check SECOND
 
 General technology references: languages, frameworks, libraries, patterns.
 
 ```bash
-curl -s https://happyin.space/llms.txt
+# Example - replace PUBLIC_KB_URL with whatever your team curates:
+#   curl -s https://<your-team-kb>/llms.txt
+# If you do not curate a public KB, skip Layer 2 entirely and go straight
+# to web search + reading source.
 ```
 
 Use when Project KB does not cover the topic (e.g. general C++ patterns, ONNX Runtime API, CMake syntax).

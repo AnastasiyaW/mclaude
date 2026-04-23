@@ -30,6 +30,14 @@ No merge conflicts. No lost context. No "wait, why did they do it this way?" - t
 
 ---
 
+## Want to set it up on your project right now?
+
+Read **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - step-by-step in 10 minutes, from `pip install` to a working parallel-session setup. Covers install, identity, first lock, first handoff, memory, SessionStart hooks, and the minimum viable layers you actually need.
+
+For external task tracker integration (Linear, Jira, GitHub, Vikunja), see **[examples/integrations/](examples/integrations/)** - ~200-line template scripts you copy into your own repo. mclaude itself never calls a tracker; integration glue belongs to the team that uses it.
+
+---
+
 ## See it work in 30 seconds
 
 Before committing to the layer-by-layer reading below, run the deterministic demo. It spins up a temp directory, walks two simulated sessions (`ani` and `vasya`) through all six coordination layers, and generates a Mermaid sequence diagram of what happened.
@@ -595,6 +603,14 @@ mclaude handles **coordination** (who does what, when, how they communicate). Fo
 | All layers | [Proof-Verify Skill](https://github.com/AnastasiyaW/claude-code-config/blob/main/skills/development/proof-verify/SKILL.md) - plan → build → independent verify → fix loop |
 
 **Proof-verify in multi-session context:** Session A creates `.proof/PLAN.md` and builds. Session B (fresh context, different mclaude identity) runs verification against the plan. The lock system prevents both from editing simultaneously. Messages pass verification results. Memory stores learnings.
+
+## External tracker integration
+
+mclaude itself does NOT call any external task tracker (Vikunja, Linear, Jira, GitHub, ...). That would couple a library meant to be reusable to one team's stack.
+
+Instead, handoffs carry an optional `refs: list[str]` field with opaque `provider:id` tokens (e.g. `vikunja:1247`, `linear:ENG-42`). mclaude renders them as a `## Refs` section. External tooling - a cron job, a bot, a plain script - scans handoff files, extracts refs, and does whatever integration you want (post comments, close tasks, sync status).
+
+This keeps mclaude tiny and portable, while letting each team wire their own tracker in a few dozen lines of code.
 
 ---
 

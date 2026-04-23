@@ -121,6 +121,10 @@ class Handoff:
     slug_override: str | None = None  # if caller wants to name it manually
     timestamp: str | None = None  # ISO format, defaults to now
     status: str = "ACTIVE"  # ACTIVE | RESUMED | CLOSED | ABANDONED
+    # Optional link to an external task tracker. If set, tools like the
+    # vikunja_bridge auto-post a back-link to this handoff as a comment on
+    # the referenced task. Format: provider:id (e.g. "vikunja:1247").
+    external_task: str | None = None
 
     def session_short(self) -> str:
         """First 8 chars of session_id, or a random 8-char hex if ID is shorter."""
@@ -273,6 +277,18 @@ class HandoffStore:
 
         self._atomic_write(path, handoff.render_markdown())
         self._append_index(handoff, path.name)
+
+        # Best-effort external-tracker back-link. If the handoff references
+        # an external task (e.g. "vikunja:1247") and credentials are set,
+        # drop a short comment on that task linking back to this handoff.
+        # Any failure here is logged and swallowed - the handoff itself is
+        # already written and authoritative.
+        if handoff.external_task:
+            try:
+                _notify_external(self.project_root, handoff, path)
+            except Exception as exc:  # pragma: no cover - best-effort side effect
+                print(f"[handoff] external notify failed "
+                      f"({handoff.external_task}): {exc}")
         return path
 
     def _append_index(self, handoff: Handoff, filename: str) -> None:
@@ -368,3 +384,45 @@ class HandoffStore:
             return lines
         tag = f"[{status_filter.upper()}]"
         return [ln for ln in lines if tag in ln]
+
+
+def _notify_external(project_root: Path, handoff: "Handoff", handoff_path: Path) -> None:
+    """Post a back-link comment to an external tracker.
+
+    Reads handoff.external_task as "provider:id" (e.g. "vikunja:1247") and
+    dispatches to the matching bridge module. Only providers whose config
+    is present get called; the rest are silently skipped.
+
+    This runs after the handoff file is already on disk, so any network
+    failure here does not lose data - the handoff is authoritative,
+    the external comment is a cross-reference.
+    """
+    spec = handoff.external_task or ""
+    if ":" not in spec:
+        return
+    provider, _, tid = spec.partition(":")
+    provider = provider.strip().lower()
+    tid = tid.strip()
+
+    if provider == "vikunja":
+        # Import lazily - vikunja_bridge has no hard dependencies but there
+        # is no reason to load it unless needed.
+        from . import vikunja_bridge
+        try:
+            cfg = vikunja_bridge.VikunjaConfig.load(project_root)
+        except (FileNotFoundError, RuntimeError):
+            return  # no config / no auth - skip silently
+        try:
+            task_id = int(tid)
+        except ValueError:
+            return
+        note = (
+            f"[handoff] {handoff.slug()} by {handoff.session_short()} - "
+            f"status `{handoff.status}`. File: `{handoff_path.name}`."
+        )
+        vikunja_bridge._request(
+            cfg, "PUT",
+            f"/tasks/{task_id}/comments",
+            data={"comment": note},
+        )
+    # Future providers (linear, jira, github) can branch here.

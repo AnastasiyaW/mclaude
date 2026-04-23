@@ -17,7 +17,7 @@ Claude Code session
 [1] Project KB (localhost:8200)  <-- project-specific modules, API, decisions
     |
     v (not found)
-[2] Public KB (happyin.space)    <-- general technology references
+[2] Public KB (optional, team-defined) <-- general technology references
 ```
 
 ## Quick start
@@ -78,7 +78,7 @@ The article template is generated as `docs/_ARTICLE.md` - copy it for new articl
 The `claude-rules/knowledge-base.md` file instructs Claude to:
 
 1. Check the Project KB first (localhost)
-2. Fall back to the Public KB (happyin.space) for general references
+2. Fall back to a team-defined Public KB URL for general references (configure per project; example URL in `claude-rules/knowledge-base.md`)
 3. Treat KB code as canonical - no deviation without documented reason
 4. Create articles for new modules after implementing them
 5. Always add gotchas when discovering edge cases

@@ -6,7 +6,7 @@ When you have two Claude chats open on the same project - or two teammates runni
 
 mclaude is a small, file-based system that answers those questions. It does not replace your agent. It gives your agents a shared notebook, a shared lock box, a shared memory shelf, and a shared address book - all living as plain markdown and JSON inside your project.
 
-Six file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
+Seven file-based layers (zero dependencies) plus optional network, desktop, and audio extensions.
 
 ---
 
@@ -364,6 +364,32 @@ Code map and memory knowledge index complement each other: code-map describes *s
 **Memory knowledge index** (`mclaude memory find-similar`, `mclaude_memory_index`) deduplicates drawers before you create overlapping ones. Word-overlap matching against existing drawers catches "I already wrote about this in another wing" before you fragment the knowledge.
 
 **Wiki-links** (`[[path]]` syntax in drawer bodies) turn the memory graph into a navigable web. `find_backlinks()` traces incoming references. Related section auto-renders from forward links. No database needed.
+
+---
+
+### Layer 7 - Heartbeats (`mclaude.heartbeat`)
+
+*The problem:* A lock or a claimed task was taken 40 minutes ago and has had no visible activity since. Is the session still working? Did it crash? Did the human close the tab and forget?
+
+*The solution:* Running sessions periodically write a small JSON file with `last_beat`, current activity, and held locks. Other sessions can see who is live versus who is probably dead. This is the same pattern as Kubernetes liveness probes, but file-based instead of network-based.
+
+```python
+from mclaude.heartbeat import beat, list_live, list_stale
+
+# Every few minutes the session calls:
+beat(root, identity="ani", session_id="sess-a1",
+     activity="running tests on auth-race fix",
+     lock_slugs=["fix-auth-race"])
+
+# Any other session can ask:
+live = list_live(root, stale_after=600)    # default 10 min threshold
+for b in live:
+    print(f"{b.identity} [{b.runtime}] -> {b.current_activity}")
+```
+
+`list_stale()` returns sessions whose last beat is older than the threshold - candidates for GC (locks they hold may be reclaimable after human check).
+
+This is the file-based analogue of Multica's WebSocket progress stream. No server, no push - just periodic writes with atomic rename. Works offline, works in CI, degrades gracefully if a session dies.
 
 ---
 

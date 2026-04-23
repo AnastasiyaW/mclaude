@@ -17,8 +17,8 @@ human after a manual check.
 Storage:
 
     .claude/heartbeats/
-      ani-session-2026-04-23T09-30.json
-      vasya-session-2026-04-23T10-15.json
+      a1b2c3d4.json              # one file per session_id
+      e5f6g7h8.json
 
 Each file content:
 
@@ -46,10 +46,14 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
+
+
+PathLike = Union[str, Path]
 
 
 @dataclass
@@ -64,18 +68,18 @@ class Beat:
     lock_slugs: list[str] = field(default_factory=list)
 
 
-def _heartbeats_dir(project_root: Path) -> Path:
-    p = project_root / ".claude" / "heartbeats"
+def _heartbeats_dir(project_root: PathLike) -> Path:
+    p = Path(project_root) / ".claude" / "heartbeats"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
-def _beat_path(project_root: Path, session_id: str) -> Path:
+def _beat_path(project_root: PathLike, session_id: str) -> Path:
     return _heartbeats_dir(project_root) / f"{session_id}.json"
 
 
 def beat(
-    project_root: Path,
+    project_root: PathLike,
     identity: str,
     session_id: str,
     *,
@@ -110,15 +114,16 @@ def beat(
         current_activity=activity,
         lock_slugs=lock_slugs or [],
     )
-    # Atomic write: write tmp, rename over
-    tmp = fp.with_suffix(".json.tmp")
+    # Atomic write: unique tmp name prevents collision if the same session
+    # beats from two threads at once (matches handoffs._atomic_write pattern).
+    tmp = fp.with_suffix(f".json.tmp.{uuid.uuid4().hex[:8]}")
     tmp.write_text(json.dumps(asdict(b), indent=2, ensure_ascii=False),
                    encoding="utf-8")
     os.replace(str(tmp), str(fp))
     return b
 
 
-def stop(project_root: Path, session_id: str) -> bool:
+def stop(project_root: PathLike, session_id: str) -> bool:
     """Remove this session's heartbeat file (clean session end)."""
     fp = _beat_path(project_root, session_id)
     try:
@@ -128,7 +133,7 @@ def stop(project_root: Path, session_id: str) -> bool:
         return False
 
 
-def list_live(project_root: Path, *, stale_after: int = 600) -> list[Beat]:
+def list_live(project_root: PathLike, *, stale_after: int = 600) -> list[Beat]:
     """Return beats that are fresh (last_beat within stale_after seconds).
 
     Default: 10 minutes. If a session has not beaten in 10 minutes, we consider
@@ -154,7 +159,7 @@ def list_live(project_root: Path, *, stale_after: int = 600) -> list[Beat]:
     return live
 
 
-def list_stale(project_root: Path, *, stale_after: int = 600) -> list[tuple[Beat, int]]:
+def list_stale(project_root: PathLike, *, stale_after: int = 600) -> list[tuple[Beat, int]]:
     """Return (beat, seconds_since_last_beat) pairs for stale sessions.
 
     Useful for garbage collection: stale sessions may be holding locks that

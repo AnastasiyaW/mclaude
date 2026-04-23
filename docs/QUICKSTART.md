@@ -4,17 +4,9 @@ This guide is for a Claude Code session (or a human) who wants to set up
 the full mclaude stack from scratch. Follow top to bottom; each step
 takes 1-3 minutes and builds on the previous one.
 
-At the end you will have:
-
-- Parallel Claude sessions that cannot overwrite each other's work
-- Session-to-session handoffs so no context is lost when you close a chat
-- A navigable memory graph the agent can read when it opens a new session
-- Named identities so you can see "ani is on auth, vasya is on frontend"
-- Live heartbeats so other sessions can tell who is active right now
-- Optional: voice in/out, tray notifications, cross-machine sync via the hub
-
-No database. No server required (the hub is optional). Everything is
-plain markdown and JSON inside `.claude/`.
+**Every command in this guide exists in the current CLI (run `mclaude
+<command> --help` to see its flags).** If a command here fails, that is a
+bug - open an issue.
 
 ---
 
@@ -30,11 +22,7 @@ No API keys, no cloud account, no external services needed for the core.
 
 ## Step 1: install the package
 
-```bash
-pip install mclaude
-```
-
-Or from a checkout (if you want to modify the source):
+From a checkout (primary path - the library is still pre-PyPI):
 
 ```bash
 git clone https://github.com/AnastasiyaW/mclaude.git
@@ -49,8 +37,9 @@ mclaude --help
 mclaude demo --no-pause   # ~30-second self-test, writes a temp directory
 ```
 
-If `mclaude demo` walks through 17 steps and prints a Mermaid diagram,
-the package is healthy.
+`mclaude demo` walks through all six layers with two simulated sessions
+(`ani` and `vasya`) and prints a Mermaid diagram. If it completes with
+`STEP 17/17` and no tracebacks, your install is healthy.
 
 ---
 
@@ -64,14 +53,17 @@ mclaude identity register ani --owner "Your Name" --runtime claude-code
 This creates `.claude/registry.json` with your first identity. The
 `--runtime` flag tags this identity as a Claude Code session (other
 valid values: `codex`, `cursor`, `opencode`, `hermes`, or any custom
-string your team uses).
+string your team uses). In heterogeneous teams it lets you filter work
+by agent family.
 
 Verify:
 
 ```bash
 mclaude identity list
-mclaude identity whoami
+mclaude identity whoami    # reads MCLAUDE_IDENTITY env var
 ```
+
+For `whoami` to show something, `export MCLAUDE_IDENTITY=ani` first.
 
 ---
 
@@ -81,19 +73,25 @@ When a Claude session starts touching something sensitive, it should
 claim a lock first so a parallel session does not do the same work.
 
 ```bash
-mclaude lock claim fix-auth-middleware-race \
-  --description "Fix race in session write path" \
-  --identity ani
+mclaude lock claim \
+  --slug fix-auth-middleware-race \
+  --description "Fix race in session write path"
 ```
 
-This writes `.claude/locks/fix-auth-middleware-race.json`. A second
-session (or person) trying to claim the same slug will see who holds it
-and why.
+This writes `.claude/locks/fix-auth-middleware-race.json` with an
+atomic `O_CREAT|O_EXCL`. A second session (or person) trying to claim
+the same slug will see who holds it and fail fast.
 
 Release when done:
 
 ```bash
-mclaude lock release fix-auth-middleware-race
+mclaude lock release --slug fix-auth-middleware-race
+```
+
+List everything currently claimed:
+
+```bash
+mclaude lock list
 ```
 
 ---
@@ -103,111 +101,136 @@ mclaude lock release fix-auth-middleware-race
 When a session finishes (or hits the context limit), it should write a
 structured summary so the next session picks up cleanly.
 
-Easiest: ask your Claude to do it. The trigger phrase is wired into the
-default rule in `.claude/rules/session-handoff.md`. In the Claude Code
-chat just type:
+Via CLI:
 
-    prepare handoff
+```bash
+mclaude handoff write \
+  --session ani-sess-1 \
+  --goal "Fix drift validator" \
+  --done "Updated Principle 09" "Pinned min-release-age=7" \
+  --not-worked "Tried v1.14.2 pin - wrong version" \
+  --next-step "Push update to public repo" \
+  --refs vikunja:1247 linear:ENG-42
+```
 
-Claude writes `.claude/handoffs/<timestamp>_<session>_<slug>.md` and
-appends to `.claude/handoffs/INDEX.md`. Close the chat. When you open a
-new one in the same project, it reads the handoff automatically (if the
-SessionStart hook is enabled - see step 6).
+The `--refs` flag stores opaque `provider:id` tokens so external
+scripts can cross-link the handoff to your task tracker. mclaude
+itself never calls any tracker - see step 9.
 
-Manually from code:
+Via Python:
 
 ```python
+from pathlib import Path
 from mclaude.handoffs import Handoff, HandoffStore
 
-HandoffStore(project_root=".").write(Handoff(
-    session_id="ani-sess-42",
+HandoffStore(project_root=Path(".")).write(Handoff(
+    session_id="ani-sess-1",
     goal="Fix drift validator",
-    done=["Updated Principle 09", "Pinned min-release-age=7"],
+    done=["Updated Principle 09"],
     not_worked=["Tried v1.14.2 pin - wrong version"],
     next_step="Push update to public repo",
+    refs=["vikunja:1247"],
 ))
+```
+
+List and read handoffs:
+
+```bash
+mclaude handoff list
+mclaude handoff latest          # prints the newest one
+mclaude handoff read <slug-fragment>
 ```
 
 ---
 
 ## Step 5: save something to memory
 
-Memory drawers are long-lived notes about your project - decisions,
-gotchas, reference data. Any session can read them; any session can add
-to them.
+Memory drawers are long-lived notes - decisions, gotchas, reference
+data. The address space is **wing / room / hall**, NOT a path. Every
+drawer has these coordinates, so the CLI takes them as separate flags:
 
 ```bash
-mclaude memory save infrastructure/gpu-servers \
-  "GPU training servers run on internal network.
-   Identity file at ~/.ssh/team-key. Port non-standard.
-   See infra docs for connection details."
+mclaude memory save \
+  --wing infrastructure \
+  --room gpu-servers \
+  --hall references \
+  --title "GPU training servers" \
+  --content "Internal network. Key in ~/.ssh/team-key. Non-standard port. See infra docs."
 ```
 
-Creates `.claude/memory/infrastructure/gpu-servers.md`. Use
-`[[other-drawer]]` wiki-links inside the body to connect drawers; they
-become a navigable graph over time.
+- `--wing` is the broadest category (infrastructure, product, people, ...)
+- `--room` is the specific topic inside the wing
+- `--hall` is the type of content: `facts`, `decisions`, `gotchas`,
+  `references`, `discoveries`, `preferences` (default: `facts`)
 
-Find similar existing drawers before writing a new one:
+List what you have:
 
 ```bash
-mclaude memory find-similar "gpu server connection"
+mclaude memory list
+mclaude memory list --wing infrastructure
+mclaude memory search "gpu server"    # substring grep across drawers
+mclaude memory core                   # print always-loaded L0+L1 core
 ```
 
 ---
 
 ## Step 6: enable SessionStart awareness
 
-Claude Code can run a hook at session start. Add to your project's
-`.claude/settings.json` (or `~/.claude/settings.json` for global):
+`mclaude hooks install` generates the hook configuration Claude Code
+needs. Run it once per project:
 
-```json
-{
-  "hooks": {
-    "SessionStart": [{
-      "hooks": [{
-        "type": "command",
-        "command": "mclaude status --brief"
-      }]
-    }],
-    "Stop": [{
-      "hooks": [{
-        "type": "command",
-        "command": "mclaude handoff remind --stale-after 900"
-      }]
-    }]
-  }
-}
+```bash
+mclaude hooks show           # prints recommended settings.json fragment
+mclaude hooks install --apply   # writes it into .claude/settings.json
 ```
 
-Now every new session sees "2 active locks, 1 handoff ready to resume,
-ani active 3 min ago" without you doing anything. And every session
-close reminds you to write a handoff if the session was substantial.
+After this, every new Claude Code session in the project prints
+`mclaude status` at start - summary of locks, recent handoffs, live
+sessions, unread messages.
+
+To see the overview any time:
+
+```bash
+mclaude status
+```
 
 ---
 
-## Step 7: heartbeat for live visibility (optional)
+## Step 7: heartbeat for live visibility
 
-For long-running sessions you may want other sessions to see "she's
-still working, not dead." Add to your Claude workflow a call every few
-minutes:
+For long-running sessions other sessions may want to see "she is still
+working, not dead." From your Claude workflow, call every few minutes:
 
 ```python
+from pathlib import Path
 from mclaude.heartbeat import beat
-beat(project_root=".", identity="ani", session_id="ani-sess-42",
-     activity="running tests on auth-race fix",
-     lock_slugs=["fix-auth-middleware-race"])
+
+beat(
+    project_root=Path("."),
+    identity="ani",
+    session_id="ani-sess-1",
+    activity="running tests on auth-race fix",
+    lock_slugs=["fix-auth-middleware-race"],
+)
 ```
 
 Other sessions query it:
 
 ```python
-from mclaude.heartbeat import list_live
-for b in list_live("."):
+from pathlib import Path
+from mclaude.heartbeat import list_live, list_stale
+
+for b in list_live(Path(".")):
     print(f"{b.identity}: {b.current_activity} ({b.runtime})")
+
+# Sessions that missed their beat for 10+ min
+for b, age in list_stale(Path(".")):
+    print(f"{b.identity} stale for {age}s - lock {b.lock_slugs} may be reclaimable")
 ```
 
-Sessions whose last beat is older than `stale_after` (default 10 min)
-drop off the live list automatically.
+The heartbeat module is currently Python-only (no CLI subcommand yet).
+Call `beat()` from a periodic tool call in your agent workflow, or
+wrap it in a tiny cron script.
 
 ---
 
@@ -245,24 +268,25 @@ with a small script.
 **Pattern for integrating any tracker:**
 
 1. When writing a handoff, include the tracker id in the `refs` field
-   (e.g. `refs=["linear:ENG-42"]`). mclaude renders a `## Refs`
-   section; it does nothing else with the token.
+   (e.g. `--refs linear:ENG-42 gh:123`). mclaude renders a `## Refs`
+   section in the handoff markdown; it does nothing else with the token.
 
-2. Write (or reuse) a ~200-line script in your own repo that scans
+2. Write (or reuse) a ~150-line script in your own repo that scans
    `.claude/handoffs/` for tokens matching your tracker's pattern and
    posts cross-reference comments back.
 
 3. Keep the script in your private or team repo, not in mclaude. Gives
    you full control of credentials and API quirks.
 
-See `examples/integrations/` in this repo for reference scripts (Linear,
-GitHub, Vikunja) that you can copy and adapt.
+See [`examples/integrations/`](../examples/integrations/) for a
+ready-to-copy template (`handoff_refs_to_tracker.py`) and an example
+adaptation for Linear.
 
 ---
 
 ## Step 10: how much value can you get out of this?
 
-mclaude scales with how many of its layers you actually use. Rough map:
+mclaude scales with how many of its layers you actually use:
 
 | You use | What you gain |
 |---|---|
@@ -270,18 +294,16 @@ mclaude scales with how many of its layers you actually use. Rough map:
 | Locks + handoffs | Sessions pick up each other's work cleanly |
 | + memory | No more re-discovering the same gotcha every month |
 | + heartbeat | Real-time visibility into who is alive and doing what |
-| + messages | Specific cross-session requests ("can you handle review?") |
+| + messages (`mclaude mail`) | Specific cross-session requests ("can you review?") |
 | + registry | Named actors in every log entry (human-readable history) |
-| + indexer | New sessions skip the 15-min "let me re-read the codebase" |
+| + indexer (`mclaude index`) | New sessions skip the 15-min "re-read the codebase" ritual |
 | + hub | Cross-machine and cross-network sharing, optional desktop UI |
 
 Minimum viable setup is steps 0-6 (install, identity, lock, handoff,
 memory, hooks). That is ~10 minutes of setup and already prevents the
 majority of parallel-session problems.
 
-The remaining layers pay off proportionally to how many sessions you
-run and how long your projects last. For a solo person doing short
-tasks, steps 1-4 alone are often enough.
+For a solo person doing short tasks, steps 1-4 alone are often enough.
 
 ---
 
@@ -291,9 +313,9 @@ tasks, steps 1-4 alone are often enough.
 |---|---|---|
 | `mclaude: command not found` | Not installed in active venv | `which python` - install in the right env |
 | Lock claim succeeds but other session does not see it | Different `project_root` | Both sessions must run from the same directory |
-| Handoffs pile up without cleanup | Old handoffs never archived | Run `mclaude handoff archive --older-than 14d` (or schedule it) |
-| Memory graph has no `[[links]]` | Drawers were written without the wiki-link syntax | Edit the drawers to add links, or use `mclaude memory suggest-links` |
-| Heartbeats show sessions that are dead | `stop()` was never called | Stale sessions drop off after `stale_after` seconds automatically; set this to match your expected beat interval |
+| Memory drawer not found | Wrong wing/room/hall coordinates | Use `mclaude memory list` to discover |
+| Handoff INDEX.md shows wrong time | INDEX is append-only, not edited in place | Status transitions append a new line; read the latest for each session |
+| `beat()` complains about str vs Path | Old library version | `project_root` accepts `str | Path` since the current release |
 
 ---
 
@@ -302,7 +324,7 @@ tasks, steps 1-4 alone are often enough.
 - `docs/architecture.md` - how the pieces fit together under the hood
 - `docs/security-audit-recipe.md` - threat model and review checklist
 - `examples/` - real-world integration recipes (notifications, bridges)
+- `examples/integrations/` - copyable scripts for Linear, Jira, Vikunja, etc.
 - `mclaude demo` - always-runnable self-test that walks all six layers
 
-If you hit a case that is not covered, open an issue - the library
-tries to match the shape of problems it has seen in production.
+If you hit a case that is not covered, open an issue.

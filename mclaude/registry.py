@@ -125,6 +125,11 @@ class Identity:
     roles: list[str] = field(default_factory=list)
     registered_at: str = ""
     last_seen: str = ""
+    # Runtime the identity is driving. Optional but useful in heterogeneous
+    # teams where one human runs both Claude Code and Codex sessions, and
+    # tasks may be routed by runtime (see mclaude.tasks.runtime_hint).
+    # Common values: "claude-code", "codex", "cursor", "opencode", "hermes".
+    runtime: str = ""
 
     def __post_init__(self) -> None:
         if not NAME_PATTERN.match(self.name):

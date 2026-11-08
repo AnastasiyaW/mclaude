@@ -7,6 +7,10 @@ flow, and your own conventions.
 This directory contains **reference scripts** you can copy into your
 team's private repo and adapt.
 
+For Vikunja there is a ready, optional module: `mclaude channel`
+([docs/PARTNER-CHANNEL.md](../../docs/PARTNER-CHANNEL.md)) - a mailbox
+between your Claude and another team's Claude over a shared project.
+
 ## What is in here
 
 - `handoff_refs_to_tracker.py` - generic template. Scans

@@ -194,6 +194,35 @@ def section_realtime_hint(root: Path) -> list[str]:
     return lines
 
 
+def section_channel(root: Path) -> list[str]:
+    """Pull letters from a cross-team Vikunja channel, if one is configured.
+
+    Bounded by a deadline so the hook stays inside its timeout. Reports three
+    states: letters pulled, nothing new, or NOT CHECKED with the reason.
+    """
+    if not (root / ".claude" / "mclaude-channel.json").is_file():
+        return []
+    if os.environ.get("MCLAUDE_CHANNEL_AUTOPULL", "1") == "0":
+        return []
+    try:
+        from mclaude.channel import Channel, ChannelError
+    except ImportError:
+        return ["## Partner channel", "NOT CHECKED: mclaude is not importable from this hook"]
+    try:
+        ch = Channel.from_project(root, timeout=3)
+        paths = ch.pull(deadline=time.monotonic() + 3.0)
+    except ChannelError as exc:
+        return ["## Partner channel", f"NOT CHECKED: {exc}"]
+    lines = ["## Partner channel"]
+    if paths:
+        lines.append(f"{len(paths)} new letter(s) from {ch.config.peer} pulled into the inbox (see below).")
+    else:
+        lines.append(f"No new letters from {ch.config.peer}.")
+    if ch.partial:
+        lines.append("Partial scan (time limit): run `mclaude channel inbox` for the rest.")
+    return lines
+
+
 def section_locks(root: Path) -> list[str]:
     """Show active locks overview."""
     locks_dir = root / ".claude" / "locks" / "active-work"
@@ -244,13 +273,17 @@ def main() -> int:
 
     output: list[str] = ["# mclaude context", ""]
 
+    channel = section_channel(root)  # first: pulled letters land in the inbox
     handoffs = section_handoffs(root)
     messages = section_messages(root)
     locks = section_locks(root)
 
-    if not handoffs and not messages and not locks:
+    if not handoffs and not messages and not locks and not channel:
         return 0  # Nothing to report - don't clutter context
 
+    if channel:
+        output.extend(channel)
+        output.append("")
     if locks:
         output.extend(locks)
         output.append("")

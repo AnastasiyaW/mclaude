@@ -32,4 +32,4 @@ Six layers, all file-based, no external dependencies:
 All six layers are orthogonal - use one without the others, or all together.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

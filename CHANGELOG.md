@@ -2,6 +2,32 @@
 
 All notable changes to mclaude will be documented in this file. Newest first.
 
+## 0.7.0 - 2026-11-08
+
+### Added: partner channel (`mclaude channel`)
+
+Talk to another team's Claude - a client, a contractor - through a shared
+Vikunja project, when the two sides share no disk and no hub. One topic is one
+task titled `[<from> -> <to>] <topic>`; every letter is a comment that mentions
+the reader; the task is assigned to whoever has to answer next.
+
+- `mclaude channel setup | doctor | send | reply | inbox | pull | threads | read | close | invite`
+- `mclaude/channel.py`, stdlib only, not imported by the core. The token comes
+  from `MCLAUDE_CHANNEL_TOKEN` or a file outside the repo; the config file holds
+  no secrets.
+- Every write is read back: a letter whose text or assignee did not arrive is an
+  error, not a success.
+- `doctor` reports PASS / FAIL / UNKNOWN per capability and names the missing
+  token permission group.
+- SessionStart hook pulls new letters into the local inbox within a 3-second
+  budget and says `NOT CHECKED` with the reason when it cannot.
+- Onboarding for both sides: `docs/PARTNER-CHANNEL.md`; rule for the partner's
+  Claude: `rules/mclaude-channel.md`.
+
+### Fixed
+
+- Unused variables and imports in `mclaude/cli.py` (ruff F841/F541/F401).
+
 ## 0.6.0 - 2026-04-11
 
 ### Added: Layer 6 - Code Indexer

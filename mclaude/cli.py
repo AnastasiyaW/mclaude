@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import handoffs as _handoffs
 from . import locks as _locks
@@ -141,7 +142,7 @@ def _add_message_parser(sub: argparse._SubParsersAction) -> None:
     thread.add_argument("thread_id", help="Original message stem or thread field value")
     thread.add_argument("--mailbox", default="inbox")
 
-    mailboxes = m_sub.add_parser("mailboxes", help="List all mailboxes")
+    m_sub.add_parser("mailboxes", help="List all mailboxes")
 
     read = m_sub.add_parser("read", help="Read a specific message by filename")
     read.add_argument("filename")
@@ -192,9 +193,62 @@ def _add_mail_parser(sub: argparse._SubParsersAction) -> None:
 
     m_sub.add_parser("digest", help="Summary of unread by sender/type")
 
-    sync_cmd = m_sub.add_parser("sync", help="Sync messages with hub (if configured)")
+    m_sub.add_parser("sync", help="Sync messages with hub (if configured)")
 
     m.set_defaults(_dispatch="mail")
+
+
+def _add_channel_parser(sub: argparse._SubParsersAction) -> None:
+    c = sub.add_parser(
+        "channel",
+        help="Talk to another team's Claude through a shared Vikunja project",
+    )
+    c_sub = c.add_subparsers(dest="channel_cmd", required=True)
+
+    setup = c_sub.add_parser("setup", help="Write .claude/mclaude-channel.json (no secrets)")
+    setup.add_argument("--url", required=True, help="Vikunja URL, e.g. https://tasks.example.com")
+    setup.add_argument("--project", required=True, type=int, help="Shared project id")
+    setup.add_argument("--me", required=True, help="Short name of this side, e.g. acme")
+    setup.add_argument("--peer", required=True, help="Short name of the other side")
+    setup.add_argument("--me-username", required=True, help="Your Vikunja login")
+    setup.add_argument("--peer-username", required=True, help="The other side's Vikunja login")
+    setup.add_argument("--token-file", default="",
+                       help="File holding only the API token (else env MCLAUDE_CHANNEL_TOKEN)")
+
+    c_sub.add_parser("doctor", help="Check connectivity and token permissions (exit 0/1/2)")
+
+    def body_args(p: argparse.ArgumentParser) -> None:
+        g = p.add_mutually_exclusive_group(required=True)
+        g.add_argument("--body", help="Letter text (ASCII-safe shells only)")
+        g.add_argument("--body-file", help="UTF-8 file with the letter (recommended)")
+
+    send = c_sub.add_parser("send", help="Send a letter on a topic (reuses the open thread)")
+    send.add_argument("topic")
+    body_args(send)
+
+    reply = c_sub.add_parser("reply", help="Reply in an existing thread (task id)")
+    reply.add_argument("task", type=int)
+    body_args(reply)
+
+    inbox = c_sub.add_parser("inbox", help="Show new letters from the peer")
+    inbox.add_argument("--peek", action="store_true", help="Do not mark them as seen")
+
+    c_sub.add_parser("pull", help="Copy new letters into the local mclaude inbox")
+
+    threads = c_sub.add_parser("threads", help="List threads (tasks) in the shared project")
+    threads.add_argument("--all", action="store_true", help="Include closed threads")
+
+    read = c_sub.add_parser("read", help="Print a whole thread")
+    read.add_argument("task", type=int)
+
+    close = c_sub.add_parser("close", help="Mark a thread done")
+    close.add_argument("task", type=int)
+
+    invite = c_sub.add_parser("invite", help="Host side: share the project with a partner account")
+    invite.add_argument("username")
+    invite.add_argument("--permission", choices=["read", "write", "admin"], default="write")
+
+    c.set_defaults(_dispatch="channel")
 
 
 def _add_status_parser(sub: argparse._SubParsersAction) -> None:
@@ -246,7 +300,7 @@ def build_cli() -> argparse.ArgumentParser:
         prog="mclaude",
         description="Multi-session collaboration layer for Claude Code agents.",
     )
-    p.add_argument("--version", action="version", version="%(prog)s 0.6.0")
+    p.add_argument("--version", action="version", version="%(prog)s 0.7.0")
     sub = p.add_subparsers(dest="command", required=True)
 
     _add_lock_parser(sub)
@@ -254,6 +308,7 @@ def build_cli() -> argparse.ArgumentParser:
     _add_memory_parser(sub)
     _add_message_parser(sub)
     _add_mail_parser(sub)
+    _add_channel_parser(sub)
     _add_identity_parser(sub)
     _add_index_parser(sub)
     _add_status_parser(sub)
@@ -531,7 +586,7 @@ def _dispatch_mail(args: argparse.Namespace) -> int:
         thread_id = mail.ask(args.to, args.question, body=args.body, urgent=args.urgent)
         print(f"[mail] question sent to {args.to}")
         print(f"  thread: {thread_id}")
-        print(f"  check reply: mclaude mail check")
+        print("  check reply: mclaude mail check")
         return 0
 
     if cmd == "digest":
@@ -746,7 +801,6 @@ def _dispatch_hooks(args: argparse.Namespace) -> int:
         return 1
 
     if cmd == "install-guard":
-        import shutil
         from pathlib import Path as _Path
         project = _Path(args.project) if hasattr(args, "project") and args.project else _Path.cwd()
         git_hooks_dir = project / ".git" / "hooks"
@@ -865,6 +919,86 @@ def _dispatch_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_body(args: argparse.Namespace) -> str:
+    if args.body_file:
+        return Path(args.body_file).read_text(encoding="utf-8")
+    return args.body
+
+
+def _dispatch_channel(args: argparse.Namespace) -> int:
+    from .channel import Channel, ChannelConfig, ChannelError, html_to_text
+
+    if args.channel_cmd == "setup":
+        try:
+            cfg = ChannelConfig(
+                base_url=args.url, project_id=args.project, me=args.me, peer=args.peer,
+                me_username=args.me_username, peer_username=args.peer_username,
+                token_file=args.token_file,
+            )
+        except ChannelError as exc:
+            print(f"[channel] {exc}", file=sys.stderr)
+            return 1
+        print(f"[channel] wrote {cfg.save(Path.cwd())}")
+        print("[channel] next: set the token, then run `mclaude channel doctor`")
+        return 0
+
+    try:
+        ch = Channel.from_project(Path.cwd())
+        cmd = args.channel_cmd
+        if cmd == "doctor":
+            checks = ch.doctor()
+            for c in checks:
+                print(f"{c.state:7} {c.name}: {c.detail}")
+            if any(c.state == "FAIL" for c in checks):
+                return 1
+            return 2 if any(c.state == "UNKNOWN" for c in checks) else 0
+        if cmd == "send":
+            tid, cid = ch.send(args.topic, _read_body(args))
+            print(f"[channel] sent: task {tid}, comment {cid} (verified on read-back)")
+        elif cmd == "reply":
+            tid, cid = ch.send("", _read_body(args), task_id=args.task)
+            print(f"[channel] replied: task {tid}, comment {cid} (verified on read-back)")
+        elif cmd == "inbox":
+            letters = ch.inbox(mark=not args.peek)
+            if not letters:
+                print("[channel] no new letters")
+            for lt in letters:
+                print(f"=== task {lt.task_id} | {lt.topic} | from {lt.author} | {lt.created}")
+                print(lt.text)
+                print()
+        elif cmd == "pull":
+            paths = ch.pull()
+            print(f"[channel] {len(paths)} new letter(s) copied to the local inbox")
+            for p in paths:
+                print(f"  {p.name}")
+        elif cmd == "threads":
+            for t in ch.tasks(include_done=args.all):
+                who = ", ".join(u.get("username", "") for u in t.get("assignees") or []) or "-"
+                state = "done" if t.get("done") else "open"
+                print(f"#{t['id']:<6} {state:4} on:{who:12} {t.get('title', '')}")
+        elif cmd == "read":
+            task = ch._api("GET", f"/tasks/{args.task}")
+            print(f"# {task.get('title', '')}  (task {args.task})")
+            desc = html_to_text(task.get("description", ""))
+            if desc:
+                print(desc)
+            for c in ch.comments(args.task):
+                who = (c.get("author") or {}).get("username", "?")
+                print()
+                print(f"--- {who} | {c.get('created', '')} | comment {c.get('id')}")
+                print(html_to_text(c.get("comment", "")))
+        elif cmd == "close":
+            ch.close(args.task)
+            print(f"[channel] task {args.task} closed")
+        elif cmd == "invite":
+            ch.invite(args.username, args.permission)
+            print(f"[channel] shared project {ch.config.project_id} with {args.username} ({args.permission})")
+        return 0
+    except ChannelError as exc:
+        print(f"[channel] {exc}", file=sys.stderr)
+        return 1 if exc.status else 2
+
+
 def main() -> int:
     parser = build_cli()
     args = parser.parse_args()
@@ -879,6 +1013,8 @@ def main() -> int:
         return _dispatch_message(args)
     if dispatch == "mail":
         return _dispatch_mail(args)
+    if dispatch == "channel":
+        return _dispatch_channel(args)
     if dispatch == "index":
         return _dispatch_index(args)
     if dispatch == "identity":

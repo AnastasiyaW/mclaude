@@ -36,7 +36,9 @@ Read **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - step-by-step in 10 minutes, 
 
 **Pair with [claude-code-config](https://github.com/AnastasiyaW/claude-code-config) for safety and principles.** mclaude is the runtime (who does what, when); claude-code-config is the rulebook (23 architectural principles, 14 safety hooks, the `proof-verify` skill). Parallel sessions especially benefit from `destructive-command-guard`, `git-destructive-guard`, and `git-auto-backup` - they protect shared state while mclaude coordinates access. See [Step 9 in QUICKSTART](docs/QUICKSTART.md#step-9-pair-with-claude-code-config-recommended) for the exact install.
 
-For external task tracker integration (Linear, Jira, GitHub, Vikunja), see **[examples/integrations/](examples/integrations/)** - ~200-line template scripts you copy into your own repo. mclaude itself never calls a tracker; integration glue belongs to the team that uses it.
+**Working with a client or partner in another company?** Their Claude and yours can talk through a shared Vikunja project: see **[docs/PARTNER-CHANNEL.md](docs/PARTNER-CHANNEL.md)** (`mclaude channel`, about 10 minutes per side).
+
+For other task tracker integration (Linear, Jira, GitHub), see **[examples/integrations/](examples/integrations/)** - ~200-line template scripts you copy into your own repo. mclaude itself never calls a tracker; integration glue belongs to the team that uses it.
 
 ---
 
@@ -613,6 +615,8 @@ mclaude itself does NOT call any external task tracker (Vikunja, Linear, Jira, G
 Instead, handoffs carry an optional `refs: list[str]` field with opaque `provider:id` tokens (e.g. `vikunja:1247`, `linear:ENG-42`). mclaude renders them as a `## Refs` section. External tooling - a cron job, a bot, a plain script - scans handoff files, extracts refs, and does whatever integration you want (post comments, close tasks, sync status).
 
 This keeps mclaude tiny and portable, while letting each team wire their own tracker in a few dozen lines of code.
+
+The one exception is the optional **partner channel** (`mclaude channel`, `mclaude/channel.py`): a stdlib-only Vikunja client for talking to another team's Claude. The core never imports it. See [docs/PARTNER-CHANNEL.md](docs/PARTNER-CHANNEL.md).
 
 ---
 

@@ -319,7 +319,11 @@ cover 90% of multi-session failure modes we have seen in production.
 
 ## Step 10: pick your task-tracker integrations
 
-mclaude does NOT call any task tracker (Vikunja, Linear, Jira, GitHub
+**Talking to a client's or partner's Claude?** Use the built-in partner
+channel over a shared Vikunja project: [PARTNER-CHANNEL.md](PARTNER-CHANNEL.md).
+The rest of this step is about cross-linking handoffs to other trackers.
+
+The mclaude core does NOT call any task tracker (Vikunja, Linear, Jira, GitHub
 Projects). It deliberately stays generic so you can plug any tracker in
 with a small script.
 
